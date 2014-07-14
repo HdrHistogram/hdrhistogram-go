@@ -1,6 +1,6 @@
 // Package hdr provides an implementation of Gil Tene's HDR Histogram data
-// structure. The HDR Histogram allows for fast and accurate analysis of data
-// with non-normal distributions, like latency.
+// structure. The HDR Histogram allows for fast and accurate analysis of the
+// extreme ranges of data with non-normal distributions, like latency.
 package hdr
 
 import (
