@@ -1,4 +1,4 @@
-package hdrhistogram
+package hdr
 
 import (
 	"reflect"
@@ -6,7 +6,7 @@ import (
 )
 
 func TestValueAtQuantile(t *testing.T) {
-	h, err := NewHDRHistogram(1, 10000000, 3)
+	h, err := NewHistogram(1, 10000000, 3)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -47,7 +47,7 @@ func TestValueAtQuantile(t *testing.T) {
 }
 
 func TestMean(t *testing.T) {
-	h, err := NewHDRHistogram(1, 10000000, 3)
+	h, err := NewHistogram(1, 10000000, 3)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -64,7 +64,7 @@ func TestMean(t *testing.T) {
 }
 
 func TestStdDev(t *testing.T) {
-	h, err := NewHDRHistogram(1, 10000000, 3)
+	h, err := NewHistogram(1, 10000000, 3)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -81,7 +81,7 @@ func TestStdDev(t *testing.T) {
 }
 
 func TestMax(t *testing.T) {
-	h, err := NewHDRHistogram(1, 10000000, 3)
+	h, err := NewHistogram(1, 10000000, 3)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -98,7 +98,7 @@ func TestMax(t *testing.T) {
 }
 
 func TestReset(t *testing.T) {
-	h, err := NewHDRHistogram(1, 10000000, 3)
+	h, err := NewHistogram(1, 10000000, 3)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -117,12 +117,12 @@ func TestReset(t *testing.T) {
 }
 
 func TestMerge(t *testing.T) {
-	h1, err := NewHDRHistogram(1, 10000000, 3)
+	h1, err := NewHistogram(1, 10000000, 3)
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	h2, err := NewHDRHistogram(1, 10000000, 3)
+	h2, err := NewHistogram(1, 10000000, 3)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -147,7 +147,7 @@ func TestMerge(t *testing.T) {
 }
 
 func TestMin(t *testing.T) {
-	h, err := NewHDRHistogram(1, 10000000, 3)
+	h, err := NewHistogram(1, 10000000, 3)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -164,7 +164,7 @@ func TestMin(t *testing.T) {
 }
 
 func TestCumulativeDistribution(t *testing.T) {
-	h, err := NewHDRHistogram(1, 100000000, 3)
+	h, err := NewHistogram(1, 100000000, 3)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -201,7 +201,7 @@ func TestCumulativeDistribution(t *testing.T) {
 }
 
 func BenchmarkRecordValue(b *testing.B) {
-	h, err := NewHDRHistogram(1, 10000000, 3)
+	h, err := NewHistogram(1, 10000000, 3)
 	if err != nil {
 		b.Fatal(err)
 	}

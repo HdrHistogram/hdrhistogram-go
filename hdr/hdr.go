@@ -1,23 +1,23 @@
-// Package hdrhistogram provides an implementation of Gil Tene's HDR Histogram
-// data structure. The HDR Histogram allows for fast and accurate analysis of
-// data with non-normal distributions, like latency.
-package hdrhistogram
+// Package hdr provides an implementation of Gil Tene's HDR Histogram data
+// structure. The HDR Histogram allows for fast and accurate analysis of data
+// with non-normal distributions, like latency.
+package hdr
 
 import (
 	"fmt"
 	"math"
 )
 
-// A Bracket
+// A Bracket is a part of a cumulative distribution.
 type Bracket struct {
 	Quantile float64
 	Count    int64
 }
 
-// An HDRHistogram is a lossy data structure used to record the distribution of
+// A Histogram is a lossy data structure used to record the distribution of
 // non-normally distributed data (like latency) with a high degree of accuracy
 // and a bounded degree of precision.
-type HDRHistogram struct {
+type Histogram struct {
 	lowestTrackableValue        int64
 	highestTrackableValue       int64
 	unitMagnitude               int64
@@ -32,9 +32,9 @@ type HDRHistogram struct {
 	counts                      []int64
 }
 
-// NewHDRHistogram returns a new HDRHistogram instance capable of tracking
-// values in the given range and with the given amount of precision.
-func NewHDRHistogram(minValue, maxValue int64, sigfigs int) (*HDRHistogram, error) {
+// NewHistogram returns a new Histogram instance capable of tracking values in
+// the given range and with the given amount of precision.
+func NewHistogram(minValue, maxValue int64, sigfigs int) (*Histogram, error) {
 	if sigfigs < 1 || 5 < sigfigs {
 		return nil, fmt.Errorf("sigfigs must be [1,5] (was %d)", sigfigs)
 	}
@@ -71,7 +71,7 @@ func NewHDRHistogram(minValue, maxValue int64, sigfigs int) (*HDRHistogram, erro
 	bucketCount := bucketsNeeded
 	countsLen := (bucketCount + 1) * (subBucketCount / 2)
 
-	return &HDRHistogram{
+	return &Histogram{
 		lowestTrackableValue:        minValue,
 		highestTrackableValue:       maxValue,
 		unitMagnitude:               int64(unitMagnitude),
@@ -89,7 +89,7 @@ func NewHDRHistogram(minValue, maxValue int64, sigfigs int) (*HDRHistogram, erro
 
 // Merge merges the data stored in the given histogram with the receiver,
 // returning the number of recorded values which had to be dropped.
-func (h *HDRHistogram) Merge(from *HDRHistogram) (dropped int64) {
+func (h *Histogram) Merge(from *Histogram) (dropped int64) {
 	i := h.rIterator()
 	for i.next() {
 		v := i.valueFromIdx
@@ -104,7 +104,7 @@ func (h *HDRHistogram) Merge(from *HDRHistogram) (dropped int64) {
 }
 
 // Max returns the approximate maximum recorded value.
-func (h *HDRHistogram) Max() int64 {
+func (h *Histogram) Max() int64 {
 	var max int64
 	i := h.iterator()
 	for i.next() {
@@ -116,7 +116,7 @@ func (h *HDRHistogram) Max() int64 {
 }
 
 // Min returns the approximate minimum recorded value.
-func (h *HDRHistogram) Min() int64 {
+func (h *Histogram) Min() int64 {
 	var min int64
 	i := h.iterator()
 	for i.next() {
@@ -129,7 +129,7 @@ func (h *HDRHistogram) Min() int64 {
 }
 
 // Mean returns the approximate arithmetic mean of the recorded values.
-func (h *HDRHistogram) Mean() float64 {
+func (h *Histogram) Mean() float64 {
 	var total int64
 	i := h.iterator()
 	for i.next() {
@@ -141,7 +141,7 @@ func (h *HDRHistogram) Mean() float64 {
 }
 
 // StdDev returns the approximate standard deviation of the recorded values.
-func (h *HDRHistogram) StdDev() float64 {
+func (h *Histogram) StdDev() float64 {
 	mean := h.Mean()
 	geometricDevTotal := 0.0
 
@@ -158,7 +158,7 @@ func (h *HDRHistogram) StdDev() float64 {
 
 // Reset deletes all recorded values and restores the histogram to its original
 // state.
-func (h *HDRHistogram) Reset() {
+func (h *Histogram) Reset() {
 	h.totalCount = 0
 	for i := range h.counts {
 		h.counts[i] = 0
@@ -167,13 +167,13 @@ func (h *HDRHistogram) Reset() {
 
 // RecordValue records the given value, returning an error if the value is out
 // of range.
-func (h *HDRHistogram) RecordValue(v int64) error {
+func (h *Histogram) RecordValue(v int64) error {
 	return h.RecordValues(v, 1)
 }
 
 // RecordValues records n occurrences of the given value, returning an error if
 // the value is out of range.
-func (h *HDRHistogram) RecordValues(v, n int64) error {
+func (h *Histogram) RecordValues(v, n int64) error {
 	idx := h.countsIndexFor(v)
 	if idx < 0 || int(h.countsLen) <= idx {
 		return fmt.Errorf("value %d is too large to be recorded", v)
@@ -185,7 +185,7 @@ func (h *HDRHistogram) RecordValues(v, n int64) error {
 }
 
 // ValueAtQuantile returns the recorded value at the given quantile.
-func (h *HDRHistogram) ValueAtQuantile(q float64) int64 {
+func (h *Histogram) ValueAtQuantile(q float64) int64 {
 	if q > 100 {
 		q = 100
 	}
@@ -206,7 +206,7 @@ func (h *HDRHistogram) ValueAtQuantile(q float64) int64 {
 
 // CumulativeDistribution returns an ordered list of brackets of the
 // distribution of recorded values.
-func (h *HDRHistogram) CumulativeDistribution() []Bracket {
+func (h *Histogram) CumulativeDistribution() []Bracket {
 	var result []Bracket
 
 	i := h.pIterator(1)
@@ -220,14 +220,14 @@ func (h *HDRHistogram) CumulativeDistribution() []Bracket {
 	return result
 }
 
-func (h *HDRHistogram) iterator() *iterator {
+func (h *Histogram) iterator() *iterator {
 	return &iterator{
 		h:            h,
 		subBucketIdx: -1,
 	}
 }
 
-func (h *HDRHistogram) rIterator() *rIterator {
+func (h *Histogram) rIterator() *rIterator {
 	return &rIterator{
 		iterator: iterator{
 			h:            h,
@@ -236,7 +236,7 @@ func (h *HDRHistogram) rIterator() *rIterator {
 	}
 }
 
-func (h *HDRHistogram) pIterator(ticksPerHalfDistance int32) *pIterator {
+func (h *Histogram) pIterator(ticksPerHalfDistance int32) *pIterator {
 	return &pIterator{
 		iterator: iterator{
 			h:            h,
@@ -246,7 +246,7 @@ func (h *HDRHistogram) pIterator(ticksPerHalfDistance int32) *pIterator {
 	}
 }
 
-func (h *HDRHistogram) sizeOfEquivalentValueRange(v int64) int64 {
+func (h *Histogram) sizeOfEquivalentValueRange(v int64) int64 {
 	bucketIdx := h.getBucketIndex(v)
 	subBucketIdx := h.getSubBucketIdx(v, bucketIdx)
 	adjustedBucket := bucketIdx
@@ -256,33 +256,33 @@ func (h *HDRHistogram) sizeOfEquivalentValueRange(v int64) int64 {
 	return int64(1) << uint(h.unitMagnitude+int64(adjustedBucket))
 }
 
-func (h *HDRHistogram) valueFromIndex(bucketIdx, subBucketIdx int32) int64 {
+func (h *Histogram) valueFromIndex(bucketIdx, subBucketIdx int32) int64 {
 	return int64(subBucketIdx) << uint(int64(bucketIdx)+h.unitMagnitude)
 }
 
-func (h *HDRHistogram) lowestEquivalentValue(v int64) int64 {
+func (h *Histogram) lowestEquivalentValue(v int64) int64 {
 	bucketIdx := h.getBucketIndex(v)
 	subBucketIdx := h.getSubBucketIdx(v, bucketIdx)
 	return h.valueFromIndex(bucketIdx, subBucketIdx)
 }
 
-func (h *HDRHistogram) nextNonEquivalentValue(v int64) int64 {
+func (h *Histogram) nextNonEquivalentValue(v int64) int64 {
 	return h.lowestEquivalentValue(v) + h.sizeOfEquivalentValueRange(v)
 }
 
-func (h *HDRHistogram) highestEquivalentValue(v int64) int64 {
+func (h *Histogram) highestEquivalentValue(v int64) int64 {
 	return h.nextNonEquivalentValue(v) - 1
 }
 
-func (h *HDRHistogram) medianEquivalentValue(v int64) int64 {
+func (h *Histogram) medianEquivalentValue(v int64) int64 {
 	return h.lowestEquivalentValue(v) + (h.sizeOfEquivalentValueRange(v) >> 1)
 }
 
-func (h *HDRHistogram) getCountAtIndex(bucketIdx, subBucketIdx int32) int64 {
+func (h *Histogram) getCountAtIndex(bucketIdx, subBucketIdx int32) int64 {
 	return h.counts[h.countsIndex(bucketIdx, subBucketIdx)]
 }
 
-func (h *HDRHistogram) countsIndex(bucketIdx, subBucketIdx int32) int32 {
+func (h *Histogram) countsIndex(bucketIdx, subBucketIdx int32) int32 {
 	// BUG(coda): remove weird, panicky asserts
 
 	if !(bucketIdx < h.bucketCount) {
@@ -302,24 +302,24 @@ func (h *HDRHistogram) countsIndex(bucketIdx, subBucketIdx int32) int32 {
 	return bucketBaseIdx + offsetInBucket
 }
 
-func (h *HDRHistogram) getBucketIndex(v int64) int32 {
+func (h *Histogram) getBucketIndex(v int64) int32 {
 	pow2Ceiling := bitLen(v | h.subBucketMask)
 	return int32(pow2Ceiling - int64(h.unitMagnitude) -
 		int64(h.subBucketHalfCountMagnitude+1))
 }
 
-func (h *HDRHistogram) getSubBucketIdx(v int64, idx int32) int32 {
+func (h *Histogram) getSubBucketIdx(v int64, idx int32) int32 {
 	return int32(v >> uint(int64(idx)+int64(h.unitMagnitude)))
 }
 
-func (h *HDRHistogram) countsIndexFor(v int64) int {
+func (h *Histogram) countsIndexFor(v int64) int {
 	bucketIdx := h.getBucketIndex(v)
 	subBucketIdx := h.getSubBucketIdx(v, bucketIdx)
 	return int(h.countsIndex(bucketIdx, subBucketIdx))
 }
 
 type iterator struct {
-	h                                    *HDRHistogram
+	h                                    *Histogram
 	bucketIdx, subBucketIdx              int32
 	countAtIdx, countToIdx, valueFromIdx int64
 	highestEquivalentValue               int64
