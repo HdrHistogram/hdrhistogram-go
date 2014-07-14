@@ -404,7 +404,6 @@ func (p *pIterator) next() bool {
 	return true
 }
 
-// BUG(coda): bitLen should be a single instruction
 func bitLen(x int64) (n int64) {
 	for ; x >= 0x8000; x >>= 16 {
 		n += 16
