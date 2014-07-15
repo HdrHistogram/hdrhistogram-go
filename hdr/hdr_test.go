@@ -172,7 +172,7 @@ func TestCumulativeDistribution(t *testing.T) {
 	}
 }
 
-func BenchmarkRecordValue(b *testing.B) {
+func BenchmarkHistogramRecordValue(b *testing.B) {
 	h := NewHistogram(1, 10000000, 3)
 	for i := 0; i < 1000000; i++ {
 		if err := h.RecordValue(int64(i)); err != nil {
@@ -184,5 +184,13 @@ func BenchmarkRecordValue(b *testing.B) {
 
 	for i := 0; i < b.N; i++ {
 		h.RecordValue(100)
+	}
+}
+
+func BenchmarkNewHistogram(b *testing.B) {
+	b.ReportAllocs()
+
+	for i := 0; i < b.N; i++ {
+		NewHistogram(1, 120000, 3) // this could track 1ms-2min
 	}
 }
