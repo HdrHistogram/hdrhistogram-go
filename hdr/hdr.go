@@ -283,20 +283,6 @@ func (h *Histogram) getCountAtIndex(bucketIdx, subBucketIdx int32) int64 {
 }
 
 func (h *Histogram) countsIndex(bucketIdx, subBucketIdx int32) int32 {
-	// BUG(coda): remove weird, panicky asserts
-
-	if !(bucketIdx < h.bucketCount) {
-		panic("bad assert 1")
-	}
-
-	if !(subBucketIdx < h.subBucketCount) {
-		panic("bad assert 2")
-	}
-
-	if !(bucketIdx == 0 || (subBucketIdx >= h.subBucketHalfCount)) {
-		panic("bad assert 3")
-	}
-
 	bucketBaseIdx := (bucketIdx + 1) << uint(h.subBucketHalfCountMagnitude)
 	offsetInBucket := subBucketIdx - h.subBucketHalfCount
 	return bucketBaseIdx + offsetInBucket
