@@ -117,32 +117,32 @@ func TestReset(t *testing.T) {
 }
 
 func TestMerge(t *testing.T) {
-	h1, err := NewHistogram(1, 10000000, 3)
+	h1, err := NewHistogram(1, 1000, 3)
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	h2, err := NewHistogram(1, 10000000, 3)
+	h2, err := NewHistogram(1, 1000, 3)
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	for i := 0; i < 1000000; i++ {
-		if i%2 == 0 {
-			if err := h1.RecordValue(int64(i)); err != nil {
-				t.Fatal(err)
-			}
-		} else {
-			if err := h2.RecordValue(int64(i)); err != nil {
-				t.Fatal(err)
-			}
+	for i := 0; i < 100; i++ {
+		if err := h1.RecordValue(int64(i)); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	for i := 100; i < 200; i++ {
+		if err := h2.RecordValue(int64(i)); err != nil {
+			t.Fatal(err)
 		}
 	}
 
 	h1.Merge(h2)
 
-	if v := h1.StdDev(); v != 288675.1421382609 {
-		t.Errorf("StdDev was %v, but expected ~288675", v)
+	if v := h1.ValueAtQuantile(50); v != 99 {
+		t.Errorf("Median was %v, but expected 99", v)
 	}
 }
 
