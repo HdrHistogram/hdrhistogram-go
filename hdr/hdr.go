@@ -34,9 +34,9 @@ type Histogram struct {
 
 // NewHistogram returns a new Histogram instance capable of tracking values in
 // the given range and with the given amount of precision.
-func NewHistogram(minValue, maxValue int64, sigfigs int) (*Histogram, error) {
+func NewHistogram(minValue, maxValue int64, sigfigs int) *Histogram {
 	if sigfigs < 1 || 5 < sigfigs {
-		return nil, fmt.Errorf("sigfigs must be [1,5] (was %d)", sigfigs)
+		panic(fmt.Errorf("sigfigs must be [1,5] (was %d)", sigfigs))
 	}
 
 	largestValueWithSingleUnitResolution := 2 * power(10, int64(sigfigs))
@@ -84,7 +84,7 @@ func NewHistogram(minValue, maxValue int64, sigfigs int) (*Histogram, error) {
 		countsLen:                   countsLen,
 		totalCount:                  0,
 		counts:                      make([]int64, countsLen),
-	}, nil
+	}
 }
 
 // Merge merges the data stored in the given histogram with the receiver,

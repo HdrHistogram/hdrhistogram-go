@@ -6,10 +6,7 @@ import (
 )
 
 func TestValueAtQuantile(t *testing.T) {
-	h, err := NewHistogram(1, 10000000, 3)
-	if err != nil {
-		t.Fatal(err)
-	}
+	h := NewHistogram(1, 10000000, 3)
 
 	for i := 0; i < 1000000; i++ {
 		if err := h.RecordValue(int64(i)); err != nil {
@@ -47,10 +44,7 @@ func TestValueAtQuantile(t *testing.T) {
 }
 
 func TestMean(t *testing.T) {
-	h, err := NewHistogram(1, 10000000, 3)
-	if err != nil {
-		t.Fatal(err)
-	}
+	h := NewHistogram(1, 10000000, 3)
 
 	for i := 0; i < 1000000; i++ {
 		if err := h.RecordValue(int64(i)); err != nil {
@@ -64,10 +58,7 @@ func TestMean(t *testing.T) {
 }
 
 func TestStdDev(t *testing.T) {
-	h, err := NewHistogram(1, 10000000, 3)
-	if err != nil {
-		t.Fatal(err)
-	}
+	h := NewHistogram(1, 10000000, 3)
 
 	for i := 0; i < 1000000; i++ {
 		if err := h.RecordValue(int64(i)); err != nil {
@@ -81,10 +72,7 @@ func TestStdDev(t *testing.T) {
 }
 
 func TestMax(t *testing.T) {
-	h, err := NewHistogram(1, 10000000, 3)
-	if err != nil {
-		t.Fatal(err)
-	}
+	h := NewHistogram(1, 10000000, 3)
 
 	for i := 0; i < 1000000; i++ {
 		if err := h.RecordValue(int64(i)); err != nil {
@@ -98,10 +86,7 @@ func TestMax(t *testing.T) {
 }
 
 func TestReset(t *testing.T) {
-	h, err := NewHistogram(1, 10000000, 3)
-	if err != nil {
-		t.Fatal(err)
-	}
+	h := NewHistogram(1, 10000000, 3)
 
 	for i := 0; i < 1000000; i++ {
 		if err := h.RecordValue(int64(i)); err != nil {
@@ -117,15 +102,8 @@ func TestReset(t *testing.T) {
 }
 
 func TestMerge(t *testing.T) {
-	h1, err := NewHistogram(1, 1000, 3)
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	h2, err := NewHistogram(1, 1000, 3)
-	if err != nil {
-		t.Fatal(err)
-	}
+	h1 := NewHistogram(1, 1000, 3)
+	h2 := NewHistogram(1, 1000, 3)
 
 	for i := 0; i < 100; i++ {
 		if err := h1.RecordValue(int64(i)); err != nil {
@@ -147,10 +125,7 @@ func TestMerge(t *testing.T) {
 }
 
 func TestMin(t *testing.T) {
-	h, err := NewHistogram(1, 10000000, 3)
-	if err != nil {
-		t.Fatal(err)
-	}
+	h := NewHistogram(1, 10000000, 3)
 
 	for i := 0; i < 1000000; i++ {
 		if err := h.RecordValue(int64(i)); err != nil {
@@ -164,10 +139,7 @@ func TestMin(t *testing.T) {
 }
 
 func TestCumulativeDistribution(t *testing.T) {
-	h, err := NewHistogram(1, 100000000, 3)
-	if err != nil {
-		t.Fatal(err)
-	}
+	h := NewHistogram(1, 100000000, 3)
 
 	for i := 0; i < 1000000; i++ {
 		if err := h.RecordValue(int64(i)); err != nil {
@@ -201,10 +173,7 @@ func TestCumulativeDistribution(t *testing.T) {
 }
 
 func BenchmarkRecordValue(b *testing.B) {
-	h, err := NewHistogram(1, 10000000, 3)
-	if err != nil {
-		b.Fatal(err)
-	}
+	h := NewHistogram(1, 10000000, 3)
 	for i := 0; i < 1000000; i++ {
 		if err := h.RecordValue(int64(i)); err != nil {
 			b.Fatal(err)
