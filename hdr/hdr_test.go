@@ -14,32 +14,23 @@ func TestValueAtQuantile(t *testing.T) {
 		}
 	}
 
-	if v := h.ValueAtQuantile(50); v != 500223 {
-		t.Errorf("P50 was %v, but expected 500223", v)
+	data := []struct {
+		q float64
+		v int64
+	}{
+		{q: 50, v: 500223},
+		{q: 75, v: 750079},
+		{q: 90, v: 900095},
+		{q: 95, v: 950271},
+		{q: 99, v: 990207},
+		{q: 99.9, v: 999423},
+		{q: 99.99, v: 999935},
 	}
 
-	if v := h.ValueAtQuantile(90); v != 900095 {
-		t.Errorf("P90 was %v, but expected 900095", v)
-	}
-
-	if v := h.ValueAtQuantile(95); v != 950271 {
-		t.Errorf("P95 was %v, but expected 950271", v)
-	}
-
-	if v := h.ValueAtQuantile(99); v != 990207 {
-		t.Errorf("P99 was %v, but expected 990207", v)
-	}
-
-	if v := h.ValueAtQuantile(99.9); v != 999423 {
-		t.Errorf("P99.9 was %v, but expected 999423", v)
-	}
-
-	if v := h.ValueAtQuantile(99.99); v != 999935 {
-		t.Errorf("P99.99 was %v, but expected 999935", v)
-	}
-
-	if v := h.ValueAtQuantile(99.999); v != 1000447 {
-		t.Errorf("P99.999 was %v, but expected 1000447", v)
+	for _, d := range data {
+		if v := h.ValueAtQuantile(d.q); v != d.v {
+			t.Errorf("P%v was %v, but expected %v", d.q, v, d.v)
+		}
 	}
 }
 
@@ -52,8 +43,8 @@ func TestMean(t *testing.T) {
 		}
 	}
 
-	if v := h.Mean(); v != 500000.013312 {
-		t.Errorf("Mean was %v, but expected ~500000", v)
+	if v, want := h.Mean(), 500000.013312; v != want {
+		t.Errorf("Mean was %v, but expected %v", v, want)
 	}
 }
 
@@ -66,8 +57,8 @@ func TestStdDev(t *testing.T) {
 		}
 	}
 
-	if v := h.StdDev(); v != 288675.1403682715 {
-		t.Errorf("StdDev was %v, but expected ~288675", v)
+	if v, want := h.StdDev(), 288675.1403682715; v != want {
+		t.Errorf("StdDev was %v, but expected %v", v, want)
 	}
 }
 
@@ -80,8 +71,8 @@ func TestMax(t *testing.T) {
 		}
 	}
 
-	if v := h.Max(); v != 999936 {
-		t.Errorf("Max was %v, but expected 999936", v)
+	if v, want := h.Max(), int64(999936); v != want {
+		t.Errorf("Max was %v, but expected %v", v, want)
 	}
 }
 
@@ -96,8 +87,8 @@ func TestReset(t *testing.T) {
 
 	h.Reset()
 
-	if v := h.Max(); v != 0 {
-		t.Errorf("Max was %v, but expected 0", v)
+	if v, want := h.Max(), int64(0); v != want {
+		t.Errorf("Max was %v, but expected %v", v, want)
 	}
 }
 
@@ -119,8 +110,8 @@ func TestMerge(t *testing.T) {
 
 	h1.Merge(h2)
 
-	if v := h1.ValueAtQuantile(50); v != 99 {
-		t.Errorf("Median was %v, but expected 99", v)
+	if v, want := h1.ValueAtQuantile(50), int64(99); v != want {
+		t.Errorf("Median was %v, but expected %v", v, want)
 	}
 }
 
@@ -133,8 +124,8 @@ func TestMin(t *testing.T) {
 		}
 	}
 
-	if v := h.Min(); v != 0 {
-		t.Errorf("Min was %v, but expected 0", v)
+	if v, want := h.Min(), int64(0); v != want {
+		t.Errorf("Min was %v, but expected %v", v, want)
 	}
 }
 

@@ -19,8 +19,8 @@ func TestWindowedHistogram(t *testing.T) {
 		w.Current.RecordValue(int64(i))
 	}
 
-	if v := w.Merge().ValueAtQuantile(50); v != 199 {
-		t.Errorf("Median was %v, but expected 199", v)
+	if v, want := w.Merge().ValueAtQuantile(50), int64(199); v != want {
+		t.Errorf("Median was %v, but expected %v", v, want)
 	}
 }
 
