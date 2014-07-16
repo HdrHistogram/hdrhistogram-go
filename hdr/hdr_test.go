@@ -138,6 +138,14 @@ func TestMin(t *testing.T) {
 	}
 }
 
+func TestByteSize(t *testing.T) {
+	h := NewHistogram(1, 100000, 3)
+
+	if v, want := h.ByteSize(), 65604; v != want {
+		t.Errorf("ByteSize was %v, but expected %d", v, want)
+	}
+}
+
 func TestCumulativeDistribution(t *testing.T) {
 	h := NewHistogram(1, 100000000, 3)
 

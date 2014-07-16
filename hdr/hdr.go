@@ -87,6 +87,15 @@ func NewHistogram(minValue, maxValue int64, sigfigs int) *Histogram {
 	}
 }
 
+// ByteSize returns an estimate of the amount of memory allocated to the
+// histogram in bytes.
+//
+// N.B.: This does not take into account the overhead for slices, which are
+// small, constant, and specific to the compiler version.
+func (h *Histogram) ByteSize() int {
+	return 6*8 + 5*4 + len(h.counts)*8
+}
+
 // Merge merges the data stored in the given histogram with the receiver,
 // returning the number of recorded values which had to be dropped.
 func (h *Histogram) Merge(from *Histogram) (dropped int64) {
