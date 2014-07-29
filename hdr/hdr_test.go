@@ -137,6 +137,30 @@ func TestByteSize(t *testing.T) {
 	}
 }
 
+func TestRecordCorrectedValue(t *testing.T) {
+	h := NewHistogram(1, 100000, 3)
+
+	if err := h.RecordCorrectedValue(10, 100); err != nil {
+		t.Fatal(err)
+	}
+
+	if v, want := h.ValueAtQuantile(75), int64(10); v != want {
+		t.Errorf("Corrected value was %v, but expected %v", v, want)
+	}
+}
+
+func TestRecordCorrectedValueStall(t *testing.T) {
+	h := NewHistogram(1, 100000, 3)
+
+	if err := h.RecordCorrectedValue(1000, 100); err != nil {
+		t.Fatal(err)
+	}
+
+	if v, want := h.ValueAtQuantile(75), int64(800); v != want {
+		t.Errorf("Corrected value was %v, but expected %v", v, want)
+	}
+}
+
 func TestCumulativeDistribution(t *testing.T) {
 	h := NewHistogram(1, 100000000, 3)
 
