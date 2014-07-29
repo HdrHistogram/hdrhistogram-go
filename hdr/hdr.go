@@ -182,9 +182,9 @@ func (h *Histogram) RecordValue(v int64) error {
 
 // RecordCorrectedValue record the given value, correcting for stalls in the
 // recording process. This only works for processes which are recording values
-// at an expected interval (e.g., a load tester generating N operations per
-// second). Processes which are recording ad-hoc values (e.g., latency for
-// incoming requests) can't take advantage of this.
+// at an expected interval (e.g., doing jitter analysis). Processes which are
+// recording ad-hoc values (e.g., latency for incoming requests) can't take
+// advantage of this.
 func (h *Histogram) RecordCorrectedValue(v, expectedInterval int64) error {
 	if err := h.RecordValue(v); err != nil {
 		return err
