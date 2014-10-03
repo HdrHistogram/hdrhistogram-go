@@ -1,4 +1,4 @@
-package hdr
+package hdrhistogram
 
 // A WindowedHistogram combines histograms to provide windowed statistics.
 type WindowedHistogram struct {
@@ -9,17 +9,17 @@ type WindowedHistogram struct {
 	Current *Histogram
 }
 
-// NewWindowedHistogram creates a new WindowedHistogram with N underlying
-// histograms with the given parameters.
-func NewWindowedHistogram(n int, minValue, maxValue int64, sigfigs int) *WindowedHistogram {
+// NewWindowed creates a new WindowedHistogram with N underlying histograms with
+// the given parameters.
+func NewWindowed(n int, minValue, maxValue int64, sigfigs int) *WindowedHistogram {
 	w := WindowedHistogram{
 		idx: -1,
 		h:   make([]Histogram, n),
-		m:   NewHistogram(minValue, maxValue, sigfigs),
+		m:   New(minValue, maxValue, sigfigs),
 	}
 
 	for i := range w.h {
-		w.h[i] = *NewHistogram(minValue, maxValue, sigfigs)
+		w.h[i] = *New(minValue, maxValue, sigfigs)
 	}
 	w.Rotate()
 

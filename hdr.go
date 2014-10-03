@@ -1,7 +1,7 @@
-// Package hdr provides an implementation of Gil Tene's HDR Histogram data
-// structure. The HDR Histogram allows for fast and accurate analysis of the
-// extreme ranges of data with non-normal distributions, like latency.
-package hdr
+// Package hdrhistogram provides an implementation of Gil Tene's HDR Histogram
+// data structure. The HDR Histogram allows for fast and accurate analysis of
+// the extreme ranges of data with non-normal distributions, like latency.
+package hdrhistogram
 
 import (
 	"fmt"
@@ -32,9 +32,9 @@ type Histogram struct {
 	counts                      []int64
 }
 
-// NewHistogram returns a new Histogram instance capable of tracking values in
-// the given range and with the given amount of precision.
-func NewHistogram(minValue, maxValue int64, sigfigs int) *Histogram {
+// New returns a new Histogram instance capable of tracking values in the given
+// range and with the given amount of precision.
+func New(minValue, maxValue int64, sigfigs int) *Histogram {
 	if sigfigs < 1 || 5 < sigfigs {
 		panic(fmt.Errorf("sigfigs must be [1,5] (was %d)", sigfigs))
 	}
@@ -180,7 +180,7 @@ func (h *Histogram) RecordValue(v int64) error {
 	return h.RecordValues(v, 1)
 }
 
-// RecordCorrectedValue record the given value, correcting for stalls in the
+// RecordCorrectedValue records the given value, correcting for stalls in the
 // recording process. This only works for processes which are recording values
 // at an expected interval (e.g., doing jitter analysis). Processes which are
 // recording ad-hoc values (e.g., latency for incoming requests) can't take

@@ -12,4 +12,4 @@ A pure Go implementation of the [HDR Histogram](https://github.com/HdrHistogram/
 > behavior across the value range and the subsequent value resolution at any
 > given level.
 
-For documentation, check [godoc](http://godoc.org/github.com/codahale/hdrhistogram/hdr).
+For documentation, check [godoc](http://godoc.org/github.com/codahale/hdrhistogram).
