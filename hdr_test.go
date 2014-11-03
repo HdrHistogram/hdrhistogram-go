@@ -219,3 +219,10 @@ func BenchmarkNew(b *testing.B) {
 		hdrhistogram.New(1, 120000, 3) // this could track 1ms-2min
 	}
 }
+
+func TestUnitMagnitudeUnderflow(t *testing.T) {
+	h := hdrhistogram.New(0, 200, 4)
+	if err := h.RecordValue(11); err != nil {
+		t.Fatal(err)
+	}
+}

@@ -53,6 +53,9 @@ func New(minValue, maxValue int64, sigfigs int) *Histogram {
 	subBucketHalfCountMagnitude--
 
 	unitMagnitude := int32(math.Floor(math.Log(float64(minValue)) / math.Log(2)))
+	if unitMagnitude < 0 {
+		unitMagnitude = 0
+	}
 
 	subBucketCount := int32(math.Pow(2, float64(subBucketHalfCountMagnitude)+1))
 
