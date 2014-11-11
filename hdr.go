@@ -221,7 +221,7 @@ func (h *Histogram) RecordValues(v, n int64) error {
 	return nil
 }
 
-// ValueAtQuantile returns the recorded value at the given quantile.
+// ValueAtQuantile returns the recorded value at the given quantile (0..100).
 func (h *Histogram) ValueAtQuantile(q float64) int64 {
 	if q > 100 {
 		q = 100
