@@ -60,7 +60,7 @@ func New(minValue, maxValue int64, sigfigs int) *Histogram {
 	subBucketCount := int32(math.Pow(2, float64(subBucketHalfCountMagnitude)+1))
 
 	subBucketHalfCount := subBucketCount / 2
-	subBucketMask := (subBucketCount - 1) << uint(unitMagnitude)
+	subBucketMask := int64(subBucketCount-1) << uint(unitMagnitude)
 
 	// determine exponent range needed to support the trackable value with no
 	// overflow:
@@ -81,7 +81,7 @@ func New(minValue, maxValue int64, sigfigs int) *Histogram {
 		significantFigures:          int64(sigfigs),
 		subBucketHalfCountMagnitude: subBucketHalfCountMagnitude,
 		subBucketHalfCount:          subBucketHalfCount,
-		subBucketMask:               int64(subBucketMask),
+		subBucketMask:               subBucketMask,
 		subBucketCount:              subBucketCount,
 		bucketCount:                 bucketCount,
 		countsLen:                   countsLen,

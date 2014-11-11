@@ -7,6 +7,22 @@ import (
 	"github.com/codahale/hdrhistogram"
 )
 
+func TestHighSigFig(t *testing.T) {
+	input := []int64{
+		459876, 669187, 711612, 816326, 931423, 1033197, 1131895, 2477317,
+		3964974, 12718782,
+	}
+
+	hist := hdrhistogram.New(459876, 12718782, 5)
+	for _, sample := range input {
+		hist.RecordValue(sample)
+	}
+
+	if v, want := hist.ValueAtQuantile(50), int64(1048575); v != want {
+		t.Errorf("Median was %v, but expected %v", v, want)
+	}
+}
+
 func TestValueAtQuantile(t *testing.T) {
 	h := hdrhistogram.New(1, 10000000, 3)
 
