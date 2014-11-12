@@ -64,10 +64,10 @@ func New(minValue, maxValue int64, sigfigs int) *Histogram {
 
 	// determine exponent range needed to support the trackable value with no
 	// overflow:
-	trackableValue := int64(subBucketCount - 1)
+	smallestUntrackableValue := subBucketMask
 	bucketsNeeded := int32(1)
-	for trackableValue < maxValue {
-		trackableValue <<= 1
+	for smallestUntrackableValue < maxValue {
+		smallestUntrackableValue <<= 1
 		bucketsNeeded++
 	}
 

@@ -236,9 +236,27 @@ func BenchmarkNew(b *testing.B) {
 	}
 }
 
-func TestUnitMagnitudeUnderflow(t *testing.T) {
+func TestUnitMagnitudeOverflow(t *testing.T) {
 	h := hdrhistogram.New(0, 200, 4)
 	if err := h.RecordValue(11); err != nil {
 		t.Fatal(err)
+	}
+}
+
+func TestSubBucketMaskOverflow(t *testing.T) {
+	hist := hdrhistogram.New(2e7, 1e8, 5)
+	for _, sample := range [...]int64{1e8, 2e7, 3e7} {
+		hist.RecordValue(sample)
+	}
+
+	for q, want := range map[float64]int64{
+		50:    33554431,
+		83.33: 33554431,
+		83.34: 100663295,
+		99:    100663295,
+	} {
+		if got := hist.ValueAtQuantile(q); got != want {
+			t.Errorf("got %d for %fth percentile. want: %d", got, q, want)
+		}
 	}
 }
