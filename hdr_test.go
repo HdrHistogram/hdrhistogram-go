@@ -190,22 +190,22 @@ func TestCumulativeDistribution(t *testing.T) {
 
 	actual := h.CumulativeDistribution()
 	expected := []hdrhistogram.Bracket{
-		hdrhistogram.Bracket{Quantile: 0, Count: 1},
-		hdrhistogram.Bracket{Quantile: 50, Count: 500224},
-		hdrhistogram.Bracket{Quantile: 75, Count: 750080},
-		hdrhistogram.Bracket{Quantile: 87.5, Count: 875008},
-		hdrhistogram.Bracket{Quantile: 93.75, Count: 937984},
-		hdrhistogram.Bracket{Quantile: 96.875, Count: 969216},
-		hdrhistogram.Bracket{Quantile: 98.4375, Count: 984576},
-		hdrhistogram.Bracket{Quantile: 99.21875, Count: 992256},
-		hdrhistogram.Bracket{Quantile: 99.609375, Count: 996352},
-		hdrhistogram.Bracket{Quantile: 99.8046875, Count: 998400},
-		hdrhistogram.Bracket{Quantile: 99.90234375, Count: 999424},
-		hdrhistogram.Bracket{Quantile: 99.951171875, Count: 999936},
-		hdrhistogram.Bracket{Quantile: 99.9755859375, Count: 999936},
-		hdrhistogram.Bracket{Quantile: 99.98779296875, Count: 999936},
-		hdrhistogram.Bracket{Quantile: 99.993896484375, Count: 1000000},
-		hdrhistogram.Bracket{Quantile: 100, Count: 1000000},
+		hdrhistogram.Bracket{Quantile: 0, Count: 1, ValueAt: 0},
+		hdrhistogram.Bracket{Quantile: 50, Count: 500224, ValueAt: 500223},
+		hdrhistogram.Bracket{Quantile: 75, Count: 750080, ValueAt: 750079},
+		hdrhistogram.Bracket{Quantile: 87.5, Count: 875008, ValueAt: 875007},
+		hdrhistogram.Bracket{Quantile: 93.75, Count: 937984, ValueAt: 937983},
+		hdrhistogram.Bracket{Quantile: 96.875, Count: 969216, ValueAt: 969215},
+		hdrhistogram.Bracket{Quantile: 98.4375, Count: 984576, ValueAt: 984575},
+		hdrhistogram.Bracket{Quantile: 99.21875, Count: 992256, ValueAt: 992255},
+		hdrhistogram.Bracket{Quantile: 99.609375, Count: 996352, ValueAt: 996351},
+		hdrhistogram.Bracket{Quantile: 99.8046875, Count: 998400, ValueAt: 998399},
+		hdrhistogram.Bracket{Quantile: 99.90234375, Count: 999424, ValueAt: 999423},
+		hdrhistogram.Bracket{Quantile: 99.951171875, Count: 999936, ValueAt: 999935},
+		hdrhistogram.Bracket{Quantile: 99.9755859375, Count: 999936, ValueAt: 999935},
+		hdrhistogram.Bracket{Quantile: 99.98779296875, Count: 999936, ValueAt: 999935},
+		hdrhistogram.Bracket{Quantile: 99.993896484375, Count: 1000000, ValueAt: 1000447},
+		hdrhistogram.Bracket{Quantile: 100, Count: 1000000, ValueAt: 1000447},
 	}
 
 	if !reflect.DeepEqual(actual, expected) {

@@ -10,8 +10,8 @@ import (
 
 // A Bracket is a part of a cumulative distribution.
 type Bracket struct {
-	Quantile float64
-	Count    int64
+	Quantile       float64
+	Count, ValueAt int64
 }
 
 // A Histogram is a lossy data structure used to record the distribution of
@@ -251,6 +251,7 @@ func (h *Histogram) CumulativeDistribution() []Bracket {
 		result = append(result, Bracket{
 			Quantile: i.percentile,
 			Count:    i.countToIdx,
+			ValueAt:  i.highestEquivalentValue,
 		})
 	}
 
