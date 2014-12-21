@@ -260,3 +260,61 @@ func TestSubBucketMaskOverflow(t *testing.T) {
 		}
 	}
 }
+
+func TestExportImport(t *testing.T) {
+	min := int64(1)
+	max := int64(10000000)
+	sigfigs := int64(3)
+	h := hdrhistogram.New(min, max, sigfigs)
+	for i := 0; i < 1000000; i++ {
+		if err := h.RecordValue(int64(i)); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	s := h.Export()
+
+	if v := s.LowestTrackableValue; v != min {
+		t.Errorf("LowestTrackableValue was %v, but expected %v", v, min)
+	}
+
+	if v := s.HighestTrackableValue; v != max {
+		t.Errorf("HighestTrackableValue was %v, but expected %v", v, max)
+	}
+
+	if v := s.SignificantFigures; v != sigfigs {
+		t.Errorf("SignificantFigures was %v, but expected %v", v, sigfigs)
+	}
+
+	if imported := hdrhistogram.Import(s); !imported.Equals(h) {
+		t.Error("Expected Histograms to be equivalent")
+	}
+
+}
+
+func TestEquals(t *testing.T) {
+	h1 := hdrhistogram.New(1, 10000000, 3)
+	for i := 0; i < 1000000; i++ {
+		if err := h1.RecordValue(int64(i)); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	h2 := hdrhistogram.New(1, 10000000, 3)
+	for i := 0; i < 10000; i++ {
+		if err := h1.RecordValue(int64(i)); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	if h1.Equals(h2) {
+		t.Error("Expected Histograms to not be equivalent")
+	}
+
+	h1.Reset()
+	h2.Reset()
+
+	if !h1.Equals(h2) {
+		t.Error("Expected Histograms to be equivalent")
+	}
+}
