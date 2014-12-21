@@ -15,6 +15,7 @@ type Bracket struct {
 }
 
 // A Snapshot is an exported view of a Histogram, useful for serializing them.
+// A Histogram can be constructed from it by passing it to Import.
 type Snapshot struct {
 	LowestTrackableValue  int64
 	HighestTrackableValue int64
