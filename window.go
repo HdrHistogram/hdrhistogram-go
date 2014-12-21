@@ -11,7 +11,7 @@ type WindowedHistogram struct {
 
 // NewWindowed creates a new WindowedHistogram with N underlying histograms with
 // the given parameters.
-func NewWindowed(n int, minValue, maxValue int64, sigfigs int) *WindowedHistogram {
+func NewWindowed(n int, minValue, maxValue, sigfigs int64) *WindowedHistogram {
 	w := WindowedHistogram{
 		idx: -1,
 		h:   make([]Histogram, n),

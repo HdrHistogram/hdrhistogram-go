@@ -34,7 +34,7 @@ type Histogram struct {
 
 // New returns a new Histogram instance capable of tracking values in the given
 // range and with the given amount of precision.
-func New(minValue, maxValue int64, sigfigs int) *Histogram {
+func New(minValue, maxValue, sigfigs int64) *Histogram {
 	if sigfigs < 1 || 5 < sigfigs {
 		panic(fmt.Errorf("sigfigs must be [1,5] (was %d)", sigfigs))
 	}
@@ -78,7 +78,7 @@ func New(minValue, maxValue int64, sigfigs int) *Histogram {
 		lowestTrackableValue:        minValue,
 		highestTrackableValue:       maxValue,
 		unitMagnitude:               int64(unitMagnitude),
-		significantFigures:          int64(sigfigs),
+		significantFigures:          sigfigs,
 		subBucketHalfCountMagnitude: subBucketHalfCountMagnitude,
 		subBucketHalfCount:          subBucketHalfCount,
 		subBucketMask:               subBucketMask,
