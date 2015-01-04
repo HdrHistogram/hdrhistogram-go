@@ -264,7 +264,7 @@ func TestSubBucketMaskOverflow(t *testing.T) {
 func TestExportImport(t *testing.T) {
 	min := int64(1)
 	max := int64(10000000)
-	sigfigs := int64(3)
+	sigfigs := 3
 	h := hdrhistogram.New(min, max, sigfigs)
 	for i := 0; i < 1000000; i++ {
 		if err := h.RecordValue(int64(i)); err != nil {
@@ -282,7 +282,7 @@ func TestExportImport(t *testing.T) {
 		t.Errorf("HighestTrackableValue was %v, but expected %v", v, max)
 	}
 
-	if v := s.SignificantFigures; v != sigfigs {
+	if v := int(s.SignificantFigures); v != sigfigs {
 		t.Errorf("SignificantFigures was %v, but expected %v", v, sigfigs)
 	}
 

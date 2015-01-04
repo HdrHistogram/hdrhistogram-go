@@ -43,7 +43,7 @@ type Histogram struct {
 
 // New returns a new Histogram instance capable of tracking values in the given
 // range and with the given amount of precision.
-func New(minValue, maxValue, sigfigs int64) *Histogram {
+func New(minValue, maxValue int64, sigfigs int) *Histogram {
 	if sigfigs < 1 || 5 < sigfigs {
 		panic(fmt.Errorf("sigfigs must be [1,5] (was %d)", sigfigs))
 	}
@@ -87,7 +87,7 @@ func New(minValue, maxValue, sigfigs int64) *Histogram {
 		lowestTrackableValue:        minValue,
 		highestTrackableValue:       maxValue,
 		unitMagnitude:               int64(unitMagnitude),
-		significantFigures:          sigfigs,
+		significantFigures:          int64(sigfigs),
 		subBucketHalfCountMagnitude: subBucketHalfCountMagnitude,
 		subBucketHalfCount:          subBucketHalfCount,
 		subBucketMask:               subBucketMask,
@@ -306,7 +306,7 @@ func (h *Histogram) Export() *Snapshot {
 
 // Import returns a new Histogram populated from the Snapshot data.
 func Import(s *Snapshot) *Histogram {
-	h := New(s.LowestTrackableValue, s.HighestTrackableValue, s.SignificantFigures)
+	h := New(s.LowestTrackableValue, s.HighestTrackableValue, int(s.SignificantFigures))
 	h.counts = s.Counts
 	totalCount := int64(0)
 	for i := int32(0); i < h.countsLen; i++ {
