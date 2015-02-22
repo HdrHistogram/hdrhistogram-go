@@ -48,12 +48,8 @@ func New(minValue, maxValue int64, sigfigs int) *Histogram {
 		panic(fmt.Errorf("sigfigs must be [1,5] (was %d)", sigfigs))
 	}
 
-	largestValueWithSingleUnitResolution := 2 * power(10, int64(sigfigs))
-
-	// we need to shove these down to float32 or the math is wrong
-	a := float32(math.Log(float64(largestValueWithSingleUnitResolution)))
-	b := float32(math.Log(2))
-	subBucketCountMagnitude := int32(math.Ceil(float64(a / b)))
+	largestValueWithSingleUnitResolution := 2 * math.Pow10(sigfigs)
+	subBucketCountMagnitude := int32(math.Ceil(math.Log2(float64(largestValueWithSingleUnitResolution))))
 
 	subBucketHalfCountMagnitude := subBucketCountMagnitude
 	if subBucketHalfCountMagnitude < 1 {
@@ -61,7 +57,7 @@ func New(minValue, maxValue int64, sigfigs int) *Histogram {
 	}
 	subBucketHalfCountMagnitude--
 
-	unitMagnitude := int32(math.Floor(math.Log(float64(minValue)) / math.Log(2)))
+	unitMagnitude := int32(math.Floor(math.Log2(float64(minValue))))
 	if unitMagnitude < 0 {
 		unitMagnitude = 0
 	}
@@ -507,15 +503,6 @@ func bitLen(x int64) (n int64) {
 	}
 	if x >= 0x1 {
 		n++
-	}
-	return
-}
-
-func power(base, exp int64) (n int64) {
-	n = 1
-	for exp > 0 {
-		n *= base
-		exp--
 	}
 	return
 }
