@@ -474,7 +474,7 @@ func (p *pIterator) next() bool {
 		currentPercentile := (100.0 * float64(p.countToIdx)) / float64(p.h.totalCount)
 		if p.countAtIdx != 0 && p.percentileToIteratorTo <= currentPercentile {
 			p.percentile = p.percentileToIteratorTo
-			halfDistance := math.Pow(2, (math.Log(100.0/(100.0-(p.percentileToIteratorTo)))/math.Log(2))+1)
+			halfDistance := math.Trunc(math.Pow(2, math.Trunc(math.Log2(100.0/(100.0-p.percentileToIteratorTo)))+1))
 			percentileReportingTicks := float64(p.ticksPerHalfDistance) * halfDistance
 			p.percentileToIteratorTo += 100.0 / percentileReportingTicks
 			return true
