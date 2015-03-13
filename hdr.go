@@ -299,7 +299,7 @@ func (h *Histogram) Export() *Snapshot {
 		if found >= h.totalCount {
 			break
 		}
-		counts[i] = h.counts[i]
+		counts = append(counts, h.counts[i])
 		found += h.counts[i]
 	}
 
