@@ -292,7 +292,7 @@ func (h *Histogram) Equals(other *Histogram) bool {
 // Export returns a snapshot view of the Histogram. This can be later passed to
 // Import to construct a new Histogram with the same state.
 func (h *Histogram) Export() *Snapshot {
-	var counts []int64
+	counts := make([]int64, 0, len(h.counts))
 	found := int64(0)
 
 	for i := int32(0); i < h.countsLen; i++ {
@@ -300,6 +300,7 @@ func (h *Histogram) Export() *Snapshot {
 			break
 		}
 		counts[i] = h.counts[i]
+		found += h.counts[i]
 	}
 
 	return &Snapshot{
