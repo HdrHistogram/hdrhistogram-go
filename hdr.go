@@ -120,6 +120,11 @@ func (h *Histogram) Merge(from *Histogram) (dropped int64) {
 	return
 }
 
+// TotalCount returns total number of values recorded.
+func (h *Histogram) TotalCount() int64 {
+	return h.totalCount
+}
+
 // Max returns the approximate maximum recorded value.
 func (h *Histogram) Max() int64 {
 	var max int64

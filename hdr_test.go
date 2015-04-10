@@ -80,6 +80,19 @@ func TestStdDev(t *testing.T) {
 	}
 }
 
+func TestTotalCount(t *testing.T) {
+	h := hdrhistogram.New(1, 10000000, 3)
+
+	for i := 0; i < 1000000; i++ {
+		if err := h.RecordValue(int64(i)); err != nil {
+			t.Fatal(err)
+		}
+		if v, want := h.TotalCount(), int64(i+1); v != want {
+			t.Errorf("TotalCount was %v, but expected %v", v, want)
+		}
+	}
+}
+
 func TestMax(t *testing.T) {
 	h := hdrhistogram.New(1, 10000000, 3)
 
