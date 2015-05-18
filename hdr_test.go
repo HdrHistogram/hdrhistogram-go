@@ -294,8 +294,8 @@ func TestExportImport(t *testing.T) {
 
 	j := string(b[:len(b)])
 
-	if j != "" {
-		t.Error(j)
+	if j != "{\"LowestTrackableValue\":1,\"HighestTrackableValue\":1000,\"SignificantFigures\":1,\"Counts\":[1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,4,4,4,4,4,4,4,4,4]}" {
+		t.Error("Not converted to JSON correctly")
 	}
 
 	if imported := hdrhistogram.Import(s); !imported.Equals(h) {

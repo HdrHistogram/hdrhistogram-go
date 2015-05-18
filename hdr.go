@@ -303,7 +303,7 @@ func (h *Histogram) Export() *Snapshot {
 
 	counts := make([]int64, 0, highestCount)
 
-	for i := int32(0); i < highestCount; i++ {
+	for i := int32(0); i <= highestCount; i++ {
 		if found >= h.totalCount {
 			break
 		}
