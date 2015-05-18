@@ -292,10 +292,18 @@ func (h *Histogram) Equals(other *Histogram) bool {
 // Export returns a snapshot view of the Histogram. This can be later passed to
 // Import to construct a new Histogram with the same state.
 func (h *Histogram) Export() *Snapshot {
-	counts := make([]int64, 0, len(h.counts))
+	highestCount := int32(0)
 	found := int64(0)
 
 	for i := int32(0); i < h.countsLen; i++ {
+		if h.counts[i] > 0 {
+			highestCount = i
+		}
+	}
+
+	counts := make([]int64, 0, highestCount)
+
+	for i := int32(0); i < highestCount; i++ {
 		if found >= h.totalCount {
 			break
 		}
