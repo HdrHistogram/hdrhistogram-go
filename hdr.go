@@ -152,6 +152,9 @@ func (h *Histogram) Min() int64 {
 
 // Mean returns the approximate arithmetic mean of the recorded values.
 func (h *Histogram) Mean() float64 {
+	if h.totalCount == 0 {
+		return 0
+	}
 	var total int64
 	i := h.iterator()
 	for i.next() {
@@ -164,6 +167,10 @@ func (h *Histogram) Mean() float64 {
 
 // StdDev returns the approximate standard deviation of the recorded values.
 func (h *Histogram) StdDev() float64 {
+	if h.totalCount == 0 {
+		return 0
+	}
+
 	mean := h.Mean()
 	geometricDevTotal := 0.0
 
