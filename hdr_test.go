@@ -1,6 +1,7 @@
 package hdrhistogram_test
 
 import (
+	"math"
 	"reflect"
 	"testing"
 
@@ -223,6 +224,16 @@ func TestCumulativeDistribution(t *testing.T) {
 
 	if !reflect.DeepEqual(actual, expected) {
 		t.Errorf("CF was %#v, but expected %#v", actual, expected)
+	}
+}
+
+func TestNaN(t *testing.T) {
+	h := hdrhistogram.New(1, 100000, 3)
+	if math.IsNaN(h.Mean()) {
+		t.Error("mean is NaN")
+	}
+	if math.IsNaN(h.StdDev()) {
+		t.Error("stddev is NaN")
 	}
 }
 
