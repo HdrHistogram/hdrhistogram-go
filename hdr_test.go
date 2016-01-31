@@ -204,12 +204,31 @@ func TestCumulativeDistribution(t *testing.T) {
 		hdrhistogram.Bracket{Quantile: 99.951171875, Count: 999936, ValueAt: 999935},
 		hdrhistogram.Bracket{Quantile: 99.9755859375, Count: 999936, ValueAt: 999935},
 		hdrhistogram.Bracket{Quantile: 99.98779296875, Count: 999936, ValueAt: 999935},
-		hdrhistogram.Bracket{Quantile: 99.993896484375, Count: 1000000, ValueAt: 1000447},
-		hdrhistogram.Bracket{Quantile: 100, Count: 1000000, ValueAt: 1000447},
+		hdrhistogram.Bracket{Quantile: 99.993896484375, Count: 1000000, ValueAt: 1000447}, hdrhistogram.Bracket{Quantile: 100, Count: 1000000, ValueAt: 1000447},
 	}
 
 	if !reflect.DeepEqual(actual, expected) {
 		t.Errorf("CF was %#v, but expected %#v", actual, expected)
+	}
+}
+
+func TestDistribution(t *testing.T) {
+	h := hdrhistogram.New(8, 1024, 3)
+
+	for i := 0; i < 1024; i++ {
+		if err := h.RecordValue(int64(i)); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	actual := h.Distribution()
+	if len(actual) != 128 {
+		t.Errorf("Number of bars seen was %v, expected was 128", len(actual))
+	}
+	for _, b := range actual {
+		if b.Count != 8 {
+			t.Errorf("Count per bar seen was %v, expected was 8", b.Count)
+		}
 	}
 }
 
