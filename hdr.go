@@ -134,7 +134,7 @@ func (h *Histogram) Max() int64 {
 			max = i.highestEquivalentValue
 		}
 	}
-	return h.lowestEquivalentValue(max)
+	return h.highestEquivalentValue(max)
 }
 
 // Min returns the approximate minimum recorded value.
@@ -269,6 +269,31 @@ func (h *Histogram) CumulativeDistribution() []Bracket {
 			Quantile: i.percentile,
 			Count:    i.countToIdx,
 			ValueAt:  i.highestEquivalentValue,
+		})
+	}
+
+	return result
+}
+
+// Histogram bar for plotting
+type Bar struct {
+	From, To, Count int64
+}
+
+// Pretty print as csv for easy plotting
+func (b Bar) String() string {
+	return fmt.Sprintf("%v, %v, %v\n", b.From, b.To, b.Count)
+}
+
+// Distribution returns an ordered list of bars of the
+// distribution of recorded values, counts can be normalized to a probability
+func (h *Histogram) Distribution() (result []Bar) {
+	i := h.iterator()
+	for i.next() {
+		result = append(result, Bar{
+			Count: i.countAtIdx,
+			From:  h.lowestEquivalentValue(i.valueFromIdx),
+			To:    i.highestEquivalentValue,
 		})
 	}
 

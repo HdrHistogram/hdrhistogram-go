@@ -103,7 +103,7 @@ func TestMax(t *testing.T) {
 		}
 	}
 
-	if v, want := h.Max(), int64(999936); v != want {
+	if v, want := h.Max(), int64(1000447); v != want {
 		t.Errorf("Max was %v, but expected %v", v, want)
 	}
 }
