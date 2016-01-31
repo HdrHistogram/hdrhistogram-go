@@ -133,7 +133,7 @@ func (h *Histogram) Max() int64 {
 			max = i.highestEquivalentValue
 		}
 	}
-	return h.lowestEquivalentValue(max)
+	return h.highestEquivalentValue(max)
 }
 
 // Min returns the approximate minimum recorded value.
