@@ -204,7 +204,8 @@ func TestCumulativeDistribution(t *testing.T) {
 		hdrhistogram.Bracket{Quantile: 99.951171875, Count: 999936, ValueAt: 999935},
 		hdrhistogram.Bracket{Quantile: 99.9755859375, Count: 999936, ValueAt: 999935},
 		hdrhistogram.Bracket{Quantile: 99.98779296875, Count: 999936, ValueAt: 999935},
-		hdrhistogram.Bracket{Quantile: 99.993896484375, Count: 1000000, ValueAt: 1000447}, hdrhistogram.Bracket{Quantile: 100, Count: 1000000, ValueAt: 1000447},
+		hdrhistogram.Bracket{Quantile: 99.993896484375, Count: 1000000, ValueAt: 1000447},
+		hdrhistogram.Bracket{Quantile: 100, Count: 1000000, ValueAt: 1000447},
 	}
 
 	if !reflect.DeepEqual(actual, expected) {
