@@ -1,6 +1,7 @@
 package hdrhistogram_test
 
 import (
+	"math"
 	"reflect"
 	"testing"
 
@@ -77,6 +78,19 @@ func TestStdDev(t *testing.T) {
 
 	if v, want := h.StdDev(), 288675.1403682715; v != want {
 		t.Errorf("StdDev was %v, but expected %v", v, want)
+	}
+}
+
+func TestTotalCount(t *testing.T) {
+	h := hdrhistogram.New(1, 10000000, 3)
+
+	for i := 0; i < 1000000; i++ {
+		if err := h.RecordValue(int64(i)); err != nil {
+			t.Fatal(err)
+		}
+		if v, want := h.TotalCount(), int64(i+1); v != want {
+			t.Errorf("TotalCount was %v, but expected %v", v, want)
+		}
 	}
 }
 
@@ -230,6 +244,16 @@ func TestDistribution(t *testing.T) {
 		if b.Count != 8 {
 			t.Errorf("Count per bar seen was %v, expected was 8", b.Count)
 		}
+	}
+}
+
+func TestNaN(t *testing.T) {
+	h := hdrhistogram.New(1, 100000, 3)
+	if math.IsNaN(h.Mean()) {
+		t.Error("mean is NaN")
+	}
+	if math.IsNaN(h.StdDev()) {
+		t.Error("stddev is NaN")
 	}
 }
 
