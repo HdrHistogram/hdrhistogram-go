@@ -227,6 +227,26 @@ func TestCumulativeDistribution(t *testing.T) {
 	}
 }
 
+func TestDistribution(t *testing.T) {
+	h := hdrhistogram.New(8, 1024, 3)
+
+	for i := 0; i < 1024; i++ {
+		if err := h.RecordValue(int64(i)); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	actual := h.Distribution()
+	if len(actual) != 128 {
+		t.Errorf("Number of bars seen was %v, expected was 128", len(actual))
+	}
+	for _, b := range actual {
+		if b.Count != 8 {
+			t.Errorf("Count per bar seen was %v, expected was 8", b.Count)
+		}
+	}
+}
+
 func TestNaN(t *testing.T) {
 	h := hdrhistogram.New(1, 100000, 3)
 	if math.IsNaN(h.Mean()) {
