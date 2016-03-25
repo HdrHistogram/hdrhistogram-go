@@ -275,6 +275,24 @@ func (h *Histogram) CumulativeDistribution() []Bracket {
 	return result
 }
 
+// SignificantFigures returns the significant figures used to create the
+// histogram
+func (h *Histogram) SignificantFigures() int64 {
+	return h.significantFigures
+}
+
+// LowestTrackableValue returns the lower bound on values that will be added
+// to the histogram
+func (h *Histogram) LowestTrackableValue() int64 {
+	return h.lowestTrackableValue
+}
+
+// HighestTrackableValue returns the upper bound on values that will be added
+// to the histogram
+func (h *Histogram) HighestTrackableValue() int64 {
+	return h.highestTrackableValue
+}
+
 // Histogram bar for plotting
 type Bar struct {
 	From, To, Count int64
