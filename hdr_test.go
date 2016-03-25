@@ -257,6 +257,30 @@ func TestNaN(t *testing.T) {
 	}
 }
 
+func TestSignificantFigures(t *testing.T) {
+	const sigFigs = 4
+	h := hdrhistogram.New(1, 10, sigFigs)
+	if h.SignificantFigures() != sigFigs {
+		t.Errorf("Significant figures was %v, expected %d", h.SignificantFigures(), sigFigs)
+	}
+}
+
+func TestLowestTrackableValue(t *testing.T) {
+	const minVal = 2
+	h := hdrhistogram.New(minVal, 10, 3)
+	if h.LowestTrackableValue() != minVal {
+		t.Errorf("LowestTrackableValue figures was %v, expected %d", h.LowestTrackableValue(), minVal)
+	}
+}
+
+func TestHighestTrackableValue(t *testing.T) {
+	const maxVal = 11
+	h := hdrhistogram.New(1, maxVal, 3)
+	if h.HighestTrackableValue() != maxVal {
+		t.Errorf("HighestTrackableValue figures was %v, expected %d", h.HighestTrackableValue(), maxVal)
+	}
+}
+
 func BenchmarkHistogramRecordValue(b *testing.B) {
 	h := hdrhistogram.New(1, 10000000, 3)
 	for i := 0; i < 1000000; i++ {
