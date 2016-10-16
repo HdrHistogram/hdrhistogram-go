@@ -386,3 +386,37 @@ func TestEquals(t *testing.T) {
 		t.Error("Expected Histograms to be equivalent")
 	}
 }
+
+func TestTimeStamps(t *testing.T) {
+    // record 5 fake timestampey looking things
+    // we expect our histogram to return a number between any of these timestamps
+    input := []int64{
+      1476581605,
+      1476582605,
+      1476583605,
+      1476584605,
+      1476585605,
+    }
+
+    hist := hdrhistogram.New(input[2] - 10000, input[2] + 10000, 3)
+    for _, sample := range input {
+            hist.RecordValue(sample)
+    }
+
+    tolerable_delta := float64(input[2] / 1000.0)
+    if v, want := hist.ValueAtQuantile(50), int64(input[2],); math.Abs(float64(v - want))  > tolerable_delta {
+            t.Errorf("Median was %v, but expected %v +/- %v", v, want, tolerable_delta)
+    }
+    ms_hist := hdrhistogram.New(input[2] - 10000, input[2] + 10000, 5)
+    for i, sample := range input {
+      input[i] = sample * 1000; // convert to ms since epoch
+      ms_hist.RecordValue(input[i])
+    }
+
+    // verify actual value is not off by more than VAL / 1000
+    ms_tolerable_delta := float64(input[2] / 1000.0)
+    if v, want := ms_hist.ValueAtQuantile(50), int64(input[2],); math.Abs(float64(v - want))  > ms_tolerable_delta {
+            t.Errorf("Median was %v, but expected %v +/- %v", v, want, ms_tolerable_delta)
+    }
+
+}
