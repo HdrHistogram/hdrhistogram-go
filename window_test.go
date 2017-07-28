@@ -89,7 +89,6 @@ func BenchmarkWindowedHistogramRotateAndMerge(b *testing.B) {
 	for i := 0; i < b.N; i++ {
 		b.StartTimer()
 		w.Rotate()
-		w.Merge()
 		b.StopTimer()
 		for j := 0; j < valuesPerHistogram; j++ {
 			err := w.Current.RecordValue(rnd.Int63()%valueRange + minValue)
