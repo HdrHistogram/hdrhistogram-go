@@ -1,11 +1,10 @@
 package hdrhistogram_test
 
 import (
+	hdrhistogram "github.com/HdrHistogram/hdrhistogram-go"
 	"math"
 	"reflect"
 	"testing"
-
-	"github.com/codahale/hdrhistogram"
 )
 
 func TestHighSigFig(t *testing.T) {
