@@ -1,7 +1,6 @@
-hdrhistogram
-============
+hdrhistogram-go
+===============
 
-[![Build Status](https://travis-ci.org/codahale/hdrhistogram.png?branch=master)](https://travis-ci.org/codahale/hdrhistogram)
 
 A pure Go implementation of the [HDR Histogram](https://github.com/HdrHistogram/HdrHistogram).
 
@@ -13,3 +12,7 @@ A pure Go implementation of the [HDR Histogram](https://github.com/HdrHistogram/
 > given level.
 
 For documentation, check [godoc](http://godoc.org/github.com/codahale/hdrhistogram).
+
+Credits
+-------
+Many thanks for Coda Hale for contributing the initial implementation and transfering the repository here.
