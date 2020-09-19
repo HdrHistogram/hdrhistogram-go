@@ -1,9 +1,8 @@
 package hdrhistogram_test
 
 import (
+	hdrhistogram "github.com/HdrHistogram/hdrhistogram-go"
 	"testing"
-
-	"github.com/codahale/hdrhistogram"
 )
 
 func TestWindowedHistogram(t *testing.T) {
