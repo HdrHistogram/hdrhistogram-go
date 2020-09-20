@@ -8,6 +8,15 @@ import (
 	"math"
 )
 
+//
+//type AbstractHistogram interface {
+//	EncodeIntoByteBuffer() ([]byte,error)
+//	Max() int64
+//	Min() int64
+//	GetNormalizingIndexOffset() int32
+//	FillBufferFromCountsArray([]byte)([]byte,error)
+//}
+
 // A Bracket is a part of a cumulative distribution.
 type Bracket struct {
 	Quantile       float64
@@ -102,6 +111,10 @@ func New(minValue, maxValue int64, sigfigs int) *Histogram {
 // small, constant, and specific to the compiler version.
 func (h *Histogram) ByteSize() int {
 	return 6*8 + 5*4 + len(h.counts)*8
+}
+
+func (h *Histogram) getNormalizingIndexOffset() int32 {
+	return 1
 }
 
 // Merge merges the data stored in the given histogram with the receiver,
@@ -232,10 +245,14 @@ func (h *Histogram) RecordValues(v, n int64) error {
 	if idx < 0 || int(h.countsLen) <= idx {
 		return fmt.Errorf("value %d is too large to be recorded", v)
 	}
-	h.counts[idx] += n
-	h.totalCount += n
+	h.setCountAtIndex(idx, n)
 
 	return nil
+}
+
+func (h *Histogram) setCountAtIndex(idx int, n int64) {
+	h.counts[idx] += n
+	h.totalCount += n
 }
 
 // ValueAtQuantile returns the recorded value at the given quantile (0..100).
@@ -453,6 +470,10 @@ func (h *Histogram) countsIndexFor(v int64) int {
 	bucketIdx := h.getBucketIndex(v)
 	subBucketIdx := h.getSubBucketIdx(v, bucketIdx)
 	return int(h.countsIndex(bucketIdx, subBucketIdx))
+}
+
+func (h *Histogram) getIntegerToDoubleValueConversionRatio() int64 {
+	return 1
 }
 
 type iterator struct {
