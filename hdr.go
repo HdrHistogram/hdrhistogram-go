@@ -8,15 +8,6 @@ import (
 	"math"
 )
 
-//
-//type AbstractHistogram interface {
-//	EncodeIntoByteBuffer() ([]byte,error)
-//	Max() int64
-//	Min() int64
-//	GetNormalizingIndexOffset() int32
-//	FillBufferFromCountsArray([]byte)([]byte,error)
-//}
-
 // A Bracket is a part of a cumulative distribution.
 type Bracket struct {
 	Quantile       float64
