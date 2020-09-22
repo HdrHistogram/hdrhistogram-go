@@ -18,18 +18,60 @@ A pure Go implementation of the [HDR Histogram](https://github.com/HdrHistogram/
 
 For documentation, check [godoc](http://godoc.org/github.com/codahale/hdrhistogram).
 
-Repo transfer and impact on go dependencies
+
+## Getting Started
+
+### Installing
+Use `go get` to retrieve the hdrhistogram-go implementation and to add it to your `GOPATH` workspace, or project's Go module dependencies.
+
+```go
+go get github.com/HdrHistogram/hdrhistogram-go
+```
+
+To update the implementation use `go get -u` to retrieve the latest version of the hdrhistogram.
+
+```go
+go get github.com/HdrHistogram/hdrhistogram-go
+```
+
+
+### Go Modules
+
+If you are using Go modules, your `go get` will default to the latest tagged
+release version of the histogram. To get a specific release version, use
+`@<tag>` in your `go get` command.
+
+```go
+go get github.com/HdrHistogram/hdrhistogram-go@v0.9.0
+```
+
+To get the latest HdrHistogram/hdrhistogram-go master repository change use `@latest`.
+
+```go
+go get github.com/HdrHistogram/hdrhistogram-go@latest
+```
+
+### Repo transfer and impact on go dependencies
 -------------------------------------------
 This repository has been transferred under the github HdrHstogram umbrella with the help from the orginal
 author in Sept 2020. The main reasons are to group all implementations under the same roof and to provide more active contribution
 from the community as the orginal repository was archived several years ago.
+
 Unfortunately such URL change will break go applications that depend on this library
-directly or indirectly.
+directly or indirectly, as discussed [here](https://github.com/HdrHistogram/hdrhistogram-go/issues/30#issuecomment-696365251).
+
 The dependency URL should be modified to point to the new repository URL.
 The tag "v0.9.0" was applied at the point of transfer and will reflect the exact code that was frozen in the
 original repository.
 
-Credits
+If you are using Go modules, you can update to the exact point of transfter using the `@v0.9.0` tag in your `go get` command.
+
+```
+go mod edit -replace github.com/codahale/hdrhistogram=github.com/HdrHistogram/hdrhistogram-go@v0.9.0
+```
+
+## Credits
 -------
 
 Many thanks for Coda Hale for contributing the initial implementation and transfering the repository here.
+
