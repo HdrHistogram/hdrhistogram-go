@@ -20,7 +20,7 @@ author in Sept 2020. The main reasons are to group all implementations under the
 from the community as the orginal repository was archived several years ago.
 Unfortunately such URL change will break go applications that depend on this library
 directly or indirectly.
-The dependency URL should be modifi4ed to point to the new repository URL.
+The dependency URL should be modified to point to the new repository URL.
 The tag "v0.9.0" was applied at the point of transfer and will reflect the exact code that was frozen in the
 original repository.
 
