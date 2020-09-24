@@ -463,8 +463,8 @@ func (h *Histogram) countsIndexFor(v int64) int {
 	return int(h.countsIndex(bucketIdx, subBucketIdx))
 }
 
-func (h *Histogram) getIntegerToDoubleValueConversionRatio() int64 {
-	return 1
+func (h *Histogram) getIntegerToDoubleValueConversionRatio() float64 {
+	return 1.0
 }
 
 type iterator struct {
