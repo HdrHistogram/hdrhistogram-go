@@ -104,6 +104,10 @@ func (h *Histogram) ByteSize() int {
 	return 6*8 + 5*4 + len(h.counts)*8
 }
 
+func (h *Histogram) getNormalizingIndexOffset() int32 {
+	return 1
+}
+
 // Merge merges the data stored in the given histogram with the receiver,
 // returning the number of recorded values which had to be dropped.
 func (h *Histogram) Merge(from *Histogram) (dropped int64) {
@@ -232,10 +236,14 @@ func (h *Histogram) RecordValues(v, n int64) error {
 	if idx < 0 || int(h.countsLen) <= idx {
 		return fmt.Errorf("value %d is too large to be recorded", v)
 	}
-	h.counts[idx] += n
-	h.totalCount += n
+	h.setCountAtIndex(idx, n)
 
 	return nil
+}
+
+func (h *Histogram) setCountAtIndex(idx int, n int64) {
+	h.counts[idx] += n
+	h.totalCount += n
 }
 
 // ValueAtQuantile returns the recorded value at the given quantile (0..100).
@@ -453,6 +461,10 @@ func (h *Histogram) countsIndexFor(v int64) int {
 	bucketIdx := h.getBucketIndex(v)
 	subBucketIdx := h.getSubBucketIdx(v, bucketIdx)
 	return int(h.countsIndex(bucketIdx, subBucketIdx))
+}
+
+func (h *Histogram) getIntegerToDoubleValueConversionRatio() float64 {
+	return 1.0
 }
 
 type iterator struct {
