@@ -9,6 +9,7 @@ import (
 
 // The log format encodes into a single file, multiple histograms with optional shared meta data.
 // The following example showcases reading a log file into a slice of histograms
+// nolint
 func ExampleNewHistogramLogReader() {
 	dat, _ := ioutil.ReadFile("./test/tagged-Log.logV2.hlog")
 	r := bytes.NewReader(dat)
@@ -45,6 +46,7 @@ func ExampleNewHistogramLogReader() {
 // The log format encodes into a single file, multiple histograms with optional shared meta data.
 // The following example showcases writing multiple histograms into a log file and then
 // processing them again to confirm a proper encode-decode flow
+// nolint
 func ExampleNewHistogramLogWriter() {
 	var buff bytes.Buffer
 
