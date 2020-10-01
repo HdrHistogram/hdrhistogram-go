@@ -39,6 +39,33 @@ type Histogram struct {
 	countsLen                   int32
 	totalCount                  int64
 	counts                      []int64
+	startTimeMs                 int64
+	endTimeMs                   int64
+	tag                         string
+}
+
+func (h *Histogram) Tag() string {
+	return h.tag
+}
+
+func (h *Histogram) SetTag(tag string) {
+	h.tag = tag
+}
+
+func (h *Histogram) EndTimeMs() int64 {
+	return h.endTimeMs
+}
+
+func (h *Histogram) SetEndTimeMs(endTimeMs int64) {
+	h.endTimeMs = endTimeMs
+}
+
+func (h *Histogram) StartTimeMs() int64 {
+	return h.startTimeMs
+}
+
+func (h *Histogram) SetStartTimeMs(startTimeMs int64) {
+	h.startTimeMs = startTimeMs
 }
 
 // New returns a new Histogram instance capable of tracking values in the given
@@ -92,6 +119,9 @@ func New(minValue, maxValue int64, sigfigs int) *Histogram {
 		countsLen:                   countsLen,
 		totalCount:                  0,
 		counts:                      make([]int64, countsLen),
+		startTimeMs:                 0,
+		endTimeMs:                   0,
+		tag:                         "",
 	}
 }
 

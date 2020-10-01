@@ -1,7 +1,7 @@
 package hdrhistogram_test
 
 import (
-	"github.com/HdrHistogram/hdrhistogram-go"
+	hdrhistogram "github.com/HdrHistogram/hdrhistogram-go"
 	"github.com/stretchr/testify/assert"
 	"testing"
 )
@@ -19,18 +19,6 @@ func TestHistogram_Load(t *testing.T) {
 	assert.Nil(t, err)
 	assert.Equal(t, int64(1), rh.TotalCount())
 	assert.Equal(t, float64(42.0), rh.Mean())
-
-	// Failing test
-	//bufferOut, err := rh.Encode(hdrhistogram.V2CompressedEncodingCookieBase)
-	//if diff := cmp.Diff(inputBase64, bufferOut); diff != "" {
-	//	t.Errorf("The input and decoded->encoded representations differ:\n"+
-	//		"Original base64 input: %s\n"+
-	//		"Output base64 encoded: %s\n"+
-	//		"Differences (-got +want):\n%s",
-	//		string(inputBase64),
-	//		string(bufferOut),
-	//		diff)
-	//}
 
 	rh, err = hdrhistogram.Decode([]byte("HISTFAAAAB94nJNpmSzMwMDABMSMQMzMAAGMUJoJxg9mAgA1TQGm"))
 	assert.Nil(t, err)
@@ -63,9 +51,6 @@ func TestHistogram_Dump_empty(t *testing.T) {
 	assert.Equal(t, int64(1000), loadedHist.HighestTrackableValue())
 	assert.Equal(t, int64(3), loadedHist.SignificantFigures())
 
-	//Uncomment for failing test
-	//outBuffer, err := loadedHist.Encode(hdrhistogram.V2CompressedEncodingCookieBase)
-	//assert.Equal(t, empty, outBuffer)
 }
 
 func TestHistogram_Dump_Load_Merge(t *testing.T) {
