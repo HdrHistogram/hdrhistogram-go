@@ -49,21 +49,21 @@ func zig_zag_decode_i64(buf []byte) (signedValue int64, n int, err error) {
 						n = 6
 						if (buf[5] & 0x80) != 0 {
 							if buflen < 7 {
-								err = fmt.Errorf(truncatedErrStr, 6, buflen)
+								err = fmt.Errorf(truncatedErrStr, 7, buflen)
 								return
 							}
 							value |= uint64(buf[6]) & 0x7f << 42
 							n = 7
 							if (buf[6] & 0x80) != 0 {
 								if buflen < 8 {
-									err = fmt.Errorf(truncatedErrStr, 6, buflen)
+									err = fmt.Errorf(truncatedErrStr, 8, buflen)
 									return
 								}
 								value |= uint64(buf[7]) & 0x7f << 49
 								n = 8
 								if (buf[7] & 0x80) != 0 {
 									if buflen < 9 {
-										err = fmt.Errorf(truncatedErrStr, 8, buflen)
+										err = fmt.Errorf(truncatedErrStr, 9, buflen)
 										return
 									}
 									value |= uint64(buf[8]) << 56
