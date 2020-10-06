@@ -604,7 +604,13 @@ func (h *Histogram) PercentilesPrint(writer io.Writer, ticksPerHalfDistance int3
 	for _, slice := range dist {
 		percentile := slice.Quantile / 100.0
 		inverted_percentile := 1.0 / (1.0 - percentile)
-		_, err = outputWriter.Write([]byte(fmt.Sprintf("%12.3f %12f %12d %12.2f\n", float64(slice.ValueAt)/valueScale, percentile, slice.Count, inverted_percentile)))
+		var inverted_percentile_string = fmt.Sprintf("%12.2f", inverted_percentile)
+		// Given that other language implementations display inf (instead of Go's +Inf)
+		// we want to be as close as possible to them
+		if math.IsInf(inverted_percentile, 1) {
+			inverted_percentile_string = fmt.Sprintf("%12s", "inf")
+		}
+		_, err = outputWriter.Write([]byte(fmt.Sprintf("%12.3f %12f %12d %s\n", float64(slice.ValueAt)/valueScale, percentile, slice.Count, inverted_percentile_string)))
 		if err != nil {
 			return
 		}
