@@ -71,10 +71,6 @@ func ExampleHistogram_PercentilesPrint() {
 		lH.RecordValue(sample)
 	}
 
-	fmt.Printf("Percentile 50: %d\n", lH.ValueAtQuantile(50.0))
-
-	// Output:
-	// Percentile 50: 931839
 	lH.PercentilesPrint(os.Stdout, 1, 1.0)
 	// Output:
 	//  Value	Percentile	TotalCount	1/(1-Percentile)
