@@ -5,6 +5,7 @@ import (
 	"testing"
 )
 
+// nolint
 func TestWindowedHistogram(t *testing.T) {
 	w := hdrhistogram.NewWindowed(2, 1, 1000, 3)
 
