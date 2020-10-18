@@ -1,13 +1,13 @@
 package hdrhistogram_test
 
 import (
+	hdrhistogram "github.com/HdrHistogram/hdrhistogram-go"
 	"math"
 	"reflect"
 	"testing"
-
-	"github.com/codahale/hdrhistogram"
 )
 
+// nolint
 func TestHighSigFig(t *testing.T) {
 	input := []int64{
 		459876, 669187, 711612, 816326, 931423, 1033197, 1131895, 2477317,
@@ -281,6 +281,7 @@ func TestHighestTrackableValue(t *testing.T) {
 	}
 }
 
+// nolint
 func BenchmarkHistogramRecordValue(b *testing.B) {
 	h := hdrhistogram.New(1, 10000000, 3)
 	for i := 0; i < 1000000; i++ {
@@ -311,6 +312,7 @@ func TestUnitMagnitudeOverflow(t *testing.T) {
 	}
 }
 
+// nolint
 func TestSubBucketMaskOverflow(t *testing.T) {
 	hist := hdrhistogram.New(2e7, 1e8, 5)
 	for _, sample := range [...]int64{1e8, 2e7, 3e7} {

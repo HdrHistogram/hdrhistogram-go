@@ -1,12 +1,12 @@
 package hdrhistogram_test
 
 import (
+	hdrhistogram "github.com/HdrHistogram/hdrhistogram-go"
 	"math/rand"
 	"testing"
-
-	"github.com/codahale/hdrhistogram"
 )
 
+// nolint
 func TestWindowedHistogram(t *testing.T) {
 	w := hdrhistogram.NewWindowed(2, 1, 1000, 3)
 
