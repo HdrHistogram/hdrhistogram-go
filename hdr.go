@@ -28,7 +28,7 @@ type Snapshot struct {
 // non-normally distributed data (like latency) with a high degree of accuracy
 // and a bounded degree of precision.
 type Histogram struct {
-	lowestTrackableValue        int64
+	lowestDiscernibleValue      int64
 	highestTrackableValue       int64
 	unitMagnitude               int64
 	significantFigures          int64
@@ -69,17 +69,20 @@ func (h *Histogram) SetStartTimeMs(startTimeMs int64) {
 	h.startTimeMs = startTimeMs
 }
 
-// New returns a new Histogram instance capable of tracking values in the given
-// range and with the given amount of precision.
-func New(minValue, maxValue int64, sigfigs int) *Histogram {
-	if sigfigs < 1 || 5 < sigfigs {
-		panic(fmt.Errorf("sigfigs must be [1,5] (was %d)", sigfigs))
+// Construct a Histogram given the Lowest and Highest values to be tracked and a number of significant decimal digits.
+//
+// Providing a lowestDiscernibleValue is useful is situations where the units used for the histogram's values are
+// much smaller that the minimal accuracy required.
+// E.g. when tracking time values stated in nanosecond units, where the minimal accuracy required is a microsecond, the proper value for lowestDiscernibleValue would be 1000.
+func New(lowestDiscernibleValue, highestTrackableValue int64, numberOfSignificantValueDigits int) *Histogram {
+	if numberOfSignificantValueDigits < 1 || 5 < numberOfSignificantValueDigits {
+		panic(fmt.Errorf("numberOfSignificantValueDigits must be [1,5] (was %d)", numberOfSignificantValueDigits))
 	}
 
 	// Given a 3 decimal point accuracy, the expectation is obviously for "+/- 1 unit at 1000". It also means that
 	// it's "ok to be +/- 2 units at 2000". The "tricky" thing is that it is NOT ok to be +/- 2 units at 1999. Only
 	// starting at 2000. So internally, we need to maintain single unit resolution to 2x 10^decimalPoints.
-	largestValueWithSingleUnitResolution := 2 * math.Pow10(sigfigs)
+	largestValueWithSingleUnitResolution := 2 * math.Pow10(numberOfSignificantValueDigits)
 
 	// We need to maintain power-of-two subBucketCount (for clean direct indexing) that is large enough to
 	// provide unit resolution to at least largestValueWithSingleUnitResolution. So figure out
@@ -91,7 +94,7 @@ func New(minValue, maxValue int64, sigfigs int) *Histogram {
 	}
 	subBucketHalfCountMagnitude--
 
-	unitMagnitude := int32(math.Floor(math.Log2(float64(minValue))))
+	unitMagnitude := int32(math.Floor(math.Log2(float64(lowestDiscernibleValue))))
 	if unitMagnitude < 0 {
 		unitMagnitude = 0
 	}
@@ -104,16 +107,16 @@ func New(minValue, maxValue int64, sigfigs int) *Histogram {
 	// determine exponent range needed to support the trackable value with no
 	// overflow:
 	smallestUntrackableValue := int64(subBucketCount) << uint(unitMagnitude)
-	bucketsNeeded := getBucketsNeededToCoverValue(smallestUntrackableValue, maxValue)
+	bucketsNeeded := getBucketsNeededToCoverValue(smallestUntrackableValue, highestTrackableValue)
 
 	bucketCount := bucketsNeeded
 	countsLen := (bucketCount + 1) * (subBucketCount / 2)
 
 	return &Histogram{
-		lowestTrackableValue:        minValue,
-		highestTrackableValue:       maxValue,
+		lowestDiscernibleValue:      lowestDiscernibleValue,
+		highestTrackableValue:       highestTrackableValue,
 		unitMagnitude:               int64(unitMagnitude),
-		significantFigures:          int64(sigfigs),
+		significantFigures:          int64(numberOfSignificantValueDigits),
 		subBucketHalfCountMagnitude: subBucketHalfCountMagnitude,
 		subBucketHalfCount:          subBucketHalfCount,
 		subBucketMask:               subBucketMask,
@@ -356,7 +359,7 @@ func (h *Histogram) SignificantFigures() int64 {
 // LowestTrackableValue returns the lower bound on values that will be added
 // to the histogram
 func (h *Histogram) LowestTrackableValue() int64 {
-	return h.lowestTrackableValue
+	return h.lowestDiscernibleValue
 }
 
 // HighestTrackableValue returns the upper bound on values that will be added
@@ -394,7 +397,7 @@ func (h *Histogram) Distribution() (result []Bar) {
 func (h *Histogram) Equals(other *Histogram) bool {
 	switch {
 	case
-		h.lowestTrackableValue != other.lowestTrackableValue,
+		h.lowestDiscernibleValue != other.lowestDiscernibleValue,
 		h.highestTrackableValue != other.highestTrackableValue,
 		h.unitMagnitude != other.unitMagnitude,
 		h.significantFigures != other.significantFigures,
@@ -420,7 +423,7 @@ func (h *Histogram) Equals(other *Histogram) bool {
 // Import to construct a new Histogram with the same state.
 func (h *Histogram) Export() *Snapshot {
 	return &Snapshot{
-		LowestTrackableValue:  h.lowestTrackableValue,
+		LowestTrackableValue:  h.lowestDiscernibleValue,
 		HighestTrackableValue: h.highestTrackableValue,
 		SignificantFigures:    h.significantFigures,
 		Counts:                append([]int64(nil), h.counts...), // copy
