@@ -71,12 +71,16 @@ func (h *Histogram) SetStartTimeMs(startTimeMs int64) {
 
 // Construct a Histogram given the Lowest and Highest values to be tracked and a number of significant decimal digits.
 //
-// Providing a lowestDiscernibleValue is useful is situations where the units used for the histogram's values are
+// Providing a lowestDiscernibleValue is useful in situations where the units used for the histogram's values are
 // much smaller that the minimal accuracy required.
-// E.g. when tracking time values stated in nanosecond units, where the minimal accuracy required is a microsecond, the proper value for lowestDiscernibleValue would be 1000.
+// E.g. when tracking time values stated in nanosecond units, where the minimal accuracy required is a microsecond,
+// the proper value for lowestDiscernibleValue would be 1000.
 func New(lowestDiscernibleValue, highestTrackableValue int64, numberOfSignificantValueDigits int) *Histogram {
 	if numberOfSignificantValueDigits < 1 || 5 < numberOfSignificantValueDigits {
 		panic(fmt.Errorf("numberOfSignificantValueDigits must be [1,5] (was %d)", numberOfSignificantValueDigits))
+	}
+	if lowestDiscernibleValue < 1 {
+		lowestDiscernibleValue = 1
 	}
 
 	// Given a 3 decimal point accuracy, the expectation is obviously for "+/- 1 unit at 1000". It also means that
