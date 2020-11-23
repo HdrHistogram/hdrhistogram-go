@@ -54,9 +54,9 @@ func TestValueAtQuantile(t *testing.T) {
 	}
 }
 
+
 func TestMean(t *testing.T) {
 	h := hdrhistogram.New(1, 10000000, 3)
-
 	for i := 0; i < 1000000; i++ {
 		if err := h.RecordValue(int64(i)); err != nil {
 			t.Fatal(err)
@@ -67,16 +67,16 @@ func TestMean(t *testing.T) {
 
 func TestStdDev(t *testing.T) {
 	h := hdrhistogram.New(1, 10000000, 3)
-
+	total := 0.0
 	for i := 0; i < 1000000; i++ {
+		total += math.Pow(float64(i-500000.0), 2)
 		if err := h.RecordValue(int64(i)); err != nil {
 			t.Fatal(err)
 		}
 	}
-
-	if v, want := h.StdDev(), 288675.1403682715; v != want {
-		t.Errorf("StdDev was %v, but expected %v", v, want)
-	}
+	variance := total / float64(1000000-1)
+	stdDev := math.Sqrt(variance)
+	assert.InDelta(t, stdDev, h.StdDev(), stdDev*0.001)
 }
 
 func TestTotalCount(t *testing.T) {
