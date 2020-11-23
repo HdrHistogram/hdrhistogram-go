@@ -75,9 +75,15 @@ func (h *Histogram) SetStartTimeMs(startTimeMs int64) {
 // much smaller that the minimal accuracy required.
 // E.g. when tracking time values stated in nanosecond units, where the minimal accuracy required is a microsecond,
 // the proper value for lowestDiscernibleValue would be 1000.
+//
+// Note: the numberOfSignificantValueDigits must be [1,5]. If lower than 1 the numberOfSignificantValueDigits will be
+// forced to 1, and if higher than 5 the numberOfSignificantValueDigits will be forced to 5.
 func New(lowestDiscernibleValue, highestTrackableValue int64, numberOfSignificantValueDigits int) *Histogram {
-	if numberOfSignificantValueDigits < 1 || 5 < numberOfSignificantValueDigits {
-		panic(fmt.Errorf("numberOfSignificantValueDigits must be [1,5] (was %d)", numberOfSignificantValueDigits))
+	if numberOfSignificantValueDigits < 1 {
+		numberOfSignificantValueDigits = 1
+	}
+	if numberOfSignificantValueDigits > 5 {
+		numberOfSignificantValueDigits = 5
 	}
 	if lowestDiscernibleValue < 1 {
 		lowestDiscernibleValue = 1
