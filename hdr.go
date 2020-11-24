@@ -81,8 +81,7 @@ func (h *Histogram) SetStartTimeMs(startTimeMs int64) {
 func New(lowestDiscernibleValue, highestTrackableValue int64, numberOfSignificantValueDigits int) *Histogram {
 	if numberOfSignificantValueDigits < 1 {
 		numberOfSignificantValueDigits = 1
-	}
-	if numberOfSignificantValueDigits > 5 {
+	} else if numberOfSignificantValueDigits > 5 {
 		numberOfSignificantValueDigits = 5
 	}
 	if lowestDiscernibleValue < 1 {
