@@ -54,7 +54,6 @@ func TestValueAtQuantile(t *testing.T) {
 	}
 }
 
-
 func TestMean(t *testing.T) {
 	h := hdrhistogram.New(1, 10000000, 3)
 	for i := 0; i < 1000000; i++ {
@@ -385,4 +384,19 @@ func TestEquals(t *testing.T) {
 	if !h1.Equals(h2) {
 		t.Error("Expected Histograms to be equivalent")
 	}
+}
+
+// nolint
+func TestHistogram_ValuesAreEquivalent(t *testing.T) {
+	hist := hdrhistogram.New(1476573605, 1476593605, 3)
+	assert.True(t, hist.ValuesAreEquivalent(1476583605, 2147483647))
+
+	// test large histograms
+	hist = hdrhistogram.New(20000000, 100000000, 5)
+	hist.RecordValue(100000000)
+	hist.RecordValue(20000000)
+	hist.RecordValue(30000000)
+	assert.True(t, hist.ValuesAreEquivalent(20000000, hist.ValueAtQuantile(50.0)))
+	assert.True(t, hist.ValuesAreEquivalent(100000000, hist.ValueAtQuantile(83.34)))
+	assert.True(t, hist.ValuesAreEquivalent(100000000, hist.ValueAtQuantile(99.0)))
 }

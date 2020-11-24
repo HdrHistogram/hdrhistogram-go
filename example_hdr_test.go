@@ -7,7 +7,7 @@ import (
 )
 
 // This latency Histogram could be used to track and analyze the counts of
-// observed integer values between 0 us and 30000000 us ( 30 secs )
+// observed integer values between 1 us and 30000000 us ( 30 secs )
 // while maintaining a value precision of 4 significant digits across that range,
 // translating to a value resolution of :
 //   - 1 microsecond up to 10 milliseconds,

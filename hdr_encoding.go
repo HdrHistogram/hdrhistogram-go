@@ -127,7 +127,7 @@ func (h *Histogram) encodeIntoByteBuffer() (*bytes.Buffer, error) {
 	if err != nil {
 		return nil, err
 	}
-	err = binary.Write(toCompress, binary.BigEndian, h.lowestTrackableValue) // 16-23
+	err = binary.Write(toCompress, binary.BigEndian, h.lowestDiscernibleValue) // 16-23
 	if err != nil {
 		return nil, err
 	}
