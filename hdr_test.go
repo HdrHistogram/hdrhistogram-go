@@ -158,7 +158,7 @@ func TestMin(t *testing.T) {
 	}
 }
 
-func TestValueAtPercentiles(t *testing.T) {
+func TestValueAtQuantiles(t *testing.T) {
 	h := hdrhistogram.New(1, 1000000, 3)
 
 	for i := 0; i < 1000000; i++ {
@@ -168,7 +168,7 @@ func TestValueAtPercentiles(t *testing.T) {
 	}
 	// Ensure calculating the percentiles altogether returns the same values
 	// multiple calls to ValueAtQuantile()
-	values := h.ValueAtPercentiles([]float64{0.0, 50.0, 95.0, 99.0, 100.0})
+	values := h.ValueAtQuantiles([]float64{0.0, 50.0, 95.0, 99.0, 100.0})
 	assert.Equal(t, h.ValueAtQuantile(0.0), values[0])
 	assert.Equal(t, h.ValueAtQuantile(50.0), values[1])
 	assert.Equal(t, h.ValueAtQuantile(95.0), values[2])

@@ -89,7 +89,7 @@ func BenchmarkHistogramValueAtPercentilesGivenPercentileSlice(b *testing.B) {
 	b.ResetTimer()
 	b.ReportAllocs()
 	for i := 0; i < b.N; i++ {
-		h.ValueAtPercentiles(percentilesOfInterest)
+		h.ValueAtQuantiles(percentilesOfInterest)
 	}
 }
 

@@ -334,7 +334,7 @@ func (h *Histogram) ValueAtQuantile(q float64) int64 {
 	return 0
 }
 
-// ValueAtPercentiles, given an ORDERED (smaller to greater) slice of percentiles
+// ValueAtQuantiles, given an ORDERED (smaller to greater) slice of percentiles
 // returns for each passed percentile,
 // the largest value that (100% - percentile) of the overall recorded value entries
 // in the histogram are either larger than or equivalent to.
@@ -342,7 +342,7 @@ func (h *Histogram) ValueAtQuantile(q float64) int64 {
 // Note that two values are "equivalent" if `ValuesAreEquivalent(value1,value2)` would return true.
 //
 // Returns a slice of 0's if no recorded values exist.
-func (h *Histogram) ValueAtPercentiles(orderedPercentiles []float64) (values []int64) {
+func (h *Histogram) ValueAtQuantiles(orderedPercentiles []float64) (values []int64) {
 	totalQuantilesToCalculate := len(orderedPercentiles)
 	values = make([]int64, totalQuantilesToCalculate)
 	countAtPercentiles := make([]int64, totalQuantilesToCalculate)
