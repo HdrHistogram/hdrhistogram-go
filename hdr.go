@@ -334,6 +334,43 @@ func (h *Histogram) ValueAtQuantile(q float64) int64 {
 	return 0
 }
 
+// ValueAtPercentiles, given an ORDERED (smaller to greater) slice of percentiles
+// returns for each passed percentile,
+// the largest value that (100% - percentile) of the overall recorded value entries
+// in the histogram are either larger than or equivalent to.
+//
+// Note that two values are "equivalent" if `ValuesAreEquivalent(value1,value2)` would return true.
+//
+// Returns a slice of 0's if no recorded values exist.
+func (h *Histogram) ValueAtPercentiles(orderedPercentiles []float64) (values []int64) {
+	totalQuantilesToCalculate := len(orderedPercentiles)
+	values = make([]int64, totalQuantilesToCalculate)
+	countAtPercentiles := make([]int64, totalQuantilesToCalculate)
+	for i, percentile := range orderedPercentiles {
+		if percentile > 100 {
+			percentile = 100
+		}
+		values[i] = 0
+		countAtPercentiles[i] = int64(((percentile / 100) * float64(h.totalCount)) + 0.5)
+	}
+
+	total := int64(0)
+	currentQuantileSlicePos := 0
+	i := h.iterator()
+	for i.next() && currentQuantileSlicePos < totalQuantilesToCalculate {
+		total += i.countAtIdx
+		if total >= countAtPercentiles[currentQuantileSlicePos] {
+			if orderedPercentiles[currentQuantileSlicePos] == 0.0 {
+				values[currentQuantileSlicePos] = h.lowestEquivalentValue(i.valueFromIdx)
+			} else {
+				values[currentQuantileSlicePos] = h.highestEquivalentValue(i.valueFromIdx)
+			}
+			currentQuantileSlicePos++
+		}
+	}
+	return
+}
+
 // Determine if two values are equivalent with the histogram's resolution.
 // Where "equivalent" means that value samples recorded for any two
 // equivalent values are counted in a common total count.

@@ -85,3 +85,31 @@ func ExampleHistogram_PercentilesPrint() {
 	// #[Max     = 12722175.000, Total count    =           10]
 	// #[Buckets =           15, SubBuckets     =         2048]
 }
+
+// When doing an percentile analysis we normally require more than one percentile to be calculated for the given histogram.
+//
+// When that is the case ValueAtPercentiles() will deeply optimize the total time to retrieve the percentiles vs the other option
+// which is multiple calls to ValueAtQuantile().
+//
+// NOTE: The ValueAtPercentiles optimization implies that you pass an ORDERED (smaller to greater) slice of percentiles
+// nolint
+func ExampleHistogram_ValueAtPercentiles() {
+	histogram := hdrhistogram.New(1, 30000000, 3)
+
+	for i := 0; i < 1000000; i++ {
+		histogram.RecordValue(int64(i))
+	}
+
+	percentileValues := histogram.ValueAtPercentiles([]float64{50.0, 95.0, 99.0, 99.0})
+	fmt.Printf("Percentile 50: %d\n", percentileValues[0])
+	fmt.Printf("Percentile 95: %d\n", percentileValues[1])
+	fmt.Printf("Percentile 99: %d\n", percentileValues[2])
+	fmt.Printf("Percentile 99.9: %d\n", percentileValues[3])
+
+	// Output:
+	// Percentile 50: 500223
+	// Percentile 95: 950271
+	// Percentile 99: 990207
+	// Percentile 99.9: 990719
+
+}
