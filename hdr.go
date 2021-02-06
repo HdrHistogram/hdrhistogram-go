@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"math"
+	"sort"
 )
 
 // A Bracket is a part of a cumulative distribution.
@@ -313,18 +314,28 @@ func (h *Histogram) setCountAtIndex(idx int, n int64) {
 //
 // Returns 0 if no recorded values exist.
 func (h *Histogram) ValueAtQuantile(q float64) int64 {
-	if q > 100 {
-		q = 100
+	return h.ValueAtPercentile(q)
+}
+
+// ValueAtPercentile returns the largest value that (100% - percentile) of the overall recorded value entries
+// in the histogram are either larger than or equivalent to.
+//
+// Note that two values are "equivalent" if `ValuesAreEquivalent(value1,value2)` would return true.
+//
+// Returns 0 if no recorded values exist.
+func (h *Histogram) ValueAtPercentile(percentile float64) int64 {
+	if percentile > 100 {
+		percentile = 100
 	}
 
 	total := int64(0)
-	countAtPercentile := int64(((q / 100) * float64(h.totalCount)) + 0.5)
+	countAtPercentile := int64(((percentile / 100) * float64(h.totalCount)) + 0.5)
 
 	i := h.iterator()
 	for i.next() {
 		total += i.countAtIdx
 		if total >= countAtPercentile {
-			if q == 0.0 {
+			if percentile == 0.0 {
 				return h.lowestEquivalentValue(i.valueFromIdx)
 			}
 			return h.highestEquivalentValue(i.valueFromIdx)
@@ -334,23 +345,23 @@ func (h *Histogram) ValueAtQuantile(q float64) int64 {
 	return 0
 }
 
-// ValueAtQuantiles, given an ORDERED (smaller to greater) slice of percentiles
-// returns for each passed percentile,
+// ValueAtPercentiles, given an slice of percentiles returns a map containing for each passed percentile,
 // the largest value that (100% - percentile) of the overall recorded value entries
 // in the histogram are either larger than or equivalent to.
 //
 // Note that two values are "equivalent" if `ValuesAreEquivalent(value1,value2)` would return true.
 //
-// Returns a slice of 0's if no recorded values exist.
-func (h *Histogram) ValueAtQuantiles(orderedPercentiles []float64) (values []int64) {
-	totalQuantilesToCalculate := len(orderedPercentiles)
-	values = make([]int64, totalQuantilesToCalculate)
+// Returns a map of 0's if no recorded values exist.
+func (h *Histogram) ValueAtPercentiles(percentiles []float64) (values map[float64]int64) {
+	sort.Float64s(percentiles)
+	totalQuantilesToCalculate := len(percentiles)
+	values = make(map[float64]int64, totalQuantilesToCalculate)
 	countAtPercentiles := make([]int64, totalQuantilesToCalculate)
-	for i, percentile := range orderedPercentiles {
+	for i, percentile := range percentiles {
 		if percentile > 100 {
 			percentile = 100
 		}
-		values[i] = 0
+		values[percentile] = 0
 		countAtPercentiles[i] = int64(((percentile / 100) * float64(h.totalCount)) + 0.5)
 	}
 
@@ -360,10 +371,11 @@ func (h *Histogram) ValueAtQuantiles(orderedPercentiles []float64) (values []int
 	for i.next() && currentQuantileSlicePos < totalQuantilesToCalculate {
 		total += i.countAtIdx
 		if total >= countAtPercentiles[currentQuantileSlicePos] {
-			if orderedPercentiles[currentQuantileSlicePos] == 0.0 {
-				values[currentQuantileSlicePos] = h.lowestEquivalentValue(i.valueFromIdx)
+			currentPercentile := percentiles[currentQuantileSlicePos]
+			if currentPercentile == 0.0 {
+				values[currentPercentile] = h.lowestEquivalentValue(i.valueFromIdx)
 			} else {
-				values[currentQuantileSlicePos] = h.highestEquivalentValue(i.valueFromIdx)
+				values[currentPercentile] = h.highestEquivalentValue(i.valueFromIdx)
 			}
 			currentQuantileSlicePos++
 		}

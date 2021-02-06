@@ -33,7 +33,7 @@ func BenchmarkNew(b *testing.B) {
 }
 
 // nolint
-func BenchmarkHistogramValueAtQuantile(b *testing.B) {
+func BenchmarkHistogramValueAtPercentile(b *testing.B) {
 	rand.Seed(12345)
 	var highestTrackableValue int64 = 1000000
 	var lowestDiscernibleValue int64 = 1
@@ -47,7 +47,7 @@ func BenchmarkHistogramValueAtQuantile(b *testing.B) {
 	b.ResetTimer()
 	b.ReportAllocs()
 	for i := 0; i < b.N; i++ {
-		h.ValueAtQuantile(data[i])
+		h.ValueAtPercentile(data[i])
 	}
 }
 
@@ -68,7 +68,7 @@ func BenchmarkHistogramValueAtPercentileGivenPercentileSlice(b *testing.B) {
 	b.ReportAllocs()
 	for i := 0; i < b.N; i++ {
 		for _, percentile := range percentilesOfInterest {
-			h.ValueAtQuantile(percentile)
+			h.ValueAtPercentile(percentile)
 		}
 	}
 }
@@ -89,7 +89,7 @@ func BenchmarkHistogramValueAtPercentilesGivenPercentileSlice(b *testing.B) {
 	b.ResetTimer()
 	b.ReportAllocs()
 	for i := 0; i < b.N; i++ {
-		h.ValueAtQuantiles(percentilesOfInterest)
+		h.ValueAtPercentiles(percentilesOfInterest)
 	}
 }
 
