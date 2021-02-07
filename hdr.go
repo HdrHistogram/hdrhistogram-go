@@ -368,9 +368,9 @@ func (h *Histogram) ValueAtPercentiles(percentiles []float64) (values map[float6
 	total := int64(0)
 	currentQuantileSlicePos := 0
 	i := h.iterator()
-	for i.next() && currentQuantileSlicePos < totalQuantilesToCalculate {
+	for currentQuantileSlicePos < totalQuantilesToCalculate && i.next() {
 		total += i.countAtIdx
-		if total >= countAtPercentiles[currentQuantileSlicePos] {
+		for currentQuantileSlicePos < totalQuantilesToCalculate && total >= countAtPercentiles[currentQuantileSlicePos] {
 			currentPercentile := percentiles[currentQuantileSlicePos]
 			if currentPercentile == 0.0 {
 				values[currentPercentile] = h.lowestEquivalentValue(i.valueFromIdx)

@@ -159,7 +159,7 @@ func TestMin(t *testing.T) {
 }
 
 func TestHistogram_ValueAtPercentiles(t *testing.T) {
-	h := hdrhistogram.New(1, 1000000, 3)
+	h := hdrhistogram.New(1, 3600*1000*1000, 3)
 
 	for i := 0; i < 1000000; i++ {
 		if err := h.RecordValue(int64(i)); err != nil {
@@ -173,6 +173,23 @@ func TestHistogram_ValueAtPercentiles(t *testing.T) {
 	assert.Equal(t, h.ValueAtQuantile(50.0), values[50.0])
 	assert.Equal(t, h.ValueAtQuantile(95.0), values[95.0])
 	assert.Equal(t, h.ValueAtQuantile(99.0), values[99.0])
+	assert.Equal(t, h.ValueAtQuantile(100.0), values[100.0])
+
+	h.Reset()
+	for i := 0; i < 10000; i++ {
+		if err := h.RecordValue(int64(1000)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := h.RecordValue(int64(100000000)); err != nil {
+		t.Fatal(err)
+	}
+	// ensure that percentiles that are calculated using the count number will be properly computed
+	values = h.ValueAtPercentiles([]float64{30.0, 99.0, 99.99, 99.999, 100.0})
+	assert.Equal(t, h.ValueAtQuantile(30.0), values[30.0])
+	assert.Equal(t, h.ValueAtQuantile(99.0), values[99.0])
+	assert.Equal(t, h.ValueAtQuantile(99.99), values[99.99])
+	assert.Equal(t, h.ValueAtQuantile(99.999), values[99.999])
 	assert.Equal(t, h.ValueAtQuantile(100.0), values[100.0])
 }
 
