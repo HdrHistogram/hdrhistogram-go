@@ -310,6 +310,7 @@ func (h *Histogram) setCountAtIndex(idx int, n int64) {
 // ValueAtQuantile returns the largest value that (100% - percentile) of the overall recorded value entries
 // in the histogram are either larger than or equivalent to.
 //
+// The passed quantile must be a float64 value in [0.0 .. 100.0]
 // Note that two values are "equivalent" if `ValuesAreEquivalent(value1,value2)` would return true.
 //
 // Returns 0 if no recorded values exist.
@@ -320,6 +321,7 @@ func (h *Histogram) ValueAtQuantile(q float64) int64 {
 // ValueAtPercentile returns the largest value that (100% - percentile) of the overall recorded value entries
 // in the histogram are either larger than or equivalent to.
 //
+// The passed percentile must be a float64 value in [0.0 .. 100.0]
 // Note that two values are "equivalent" if `ValuesAreEquivalent(value1,value2)` would return true.
 //
 // Returns 0 if no recorded values exist.
@@ -349,6 +351,7 @@ func (h *Histogram) ValueAtPercentile(percentile float64) int64 {
 // the largest value that (100% - percentile) of the overall recorded value entries
 // in the histogram are either larger than or equivalent to.
 //
+// Each element in the given an slice of percentiles must be a float64 value in [0.0 .. 100.0]
 // Note that two values are "equivalent" if `ValuesAreEquivalent(value1,value2)` would return true.
 //
 // Returns a map of 0's if no recorded values exist.

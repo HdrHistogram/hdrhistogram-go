@@ -175,6 +175,14 @@ func TestHistogram_ValueAtPercentiles(t *testing.T) {
 	assert.Equal(t, h.ValueAtQuantile(99.0), values[99.0])
 	assert.Equal(t, h.ValueAtQuantile(100.0), values[100.0])
 
+	// negative test using out of bounds percentiles
+	assert.Equal(t, h.ValueAtQuantile(110.0), h.ValueAtPercentiles([]float64{110.0})[110.0])
+	// assert upper bound is enforced
+	assert.Equal(t, h.ValueAtQuantile(100.0), h.ValueAtPercentiles([]float64{110.0})[110.0])
+	assert.Equal(t, h.ValueAtQuantile(-1.0), h.ValueAtPercentiles([]float64{-1.0})[-1.0])
+	// assert lower bound is enforced
+	assert.Equal(t, h.ValueAtQuantile(0.0), h.ValueAtPercentiles([]float64{-1.0})[-1.0])
+	assert.Equal(t, int64(0), h.ValueAtPercentiles([]float64{-1.0})[-1.0])
 	h.Reset()
 	for i := 0; i < 10000; i++ {
 		if err := h.RecordValue(int64(1000)); err != nil {
