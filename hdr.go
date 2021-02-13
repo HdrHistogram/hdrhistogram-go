@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"math"
+	"math/bits"
 	"sort"
 )
 
@@ -535,6 +536,10 @@ func (h *Histogram) pIterator(ticksPerHalfDistance int32) *pIterator {
 
 func (h *Histogram) sizeOfEquivalentValueRange(v int64) int64 {
 	bucketIdx := h.getBucketIndex(v)
+	return h.sizeOfEquivalentValueRangeGivenBucketIdx(v, bucketIdx)
+}
+
+func (h *Histogram) sizeOfEquivalentValueRangeGivenBucketIdx(v int64, bucketIdx int32) int64 {
 	subBucketIdx := h.getSubBucketIdx(v, bucketIdx)
 	adjustedBucket := bucketIdx
 	if subBucketIdx >= h.subBucketCount {
@@ -549,12 +554,17 @@ func (h *Histogram) valueFromIndex(bucketIdx, subBucketIdx int32) int64 {
 
 func (h *Histogram) lowestEquivalentValue(v int64) int64 {
 	bucketIdx := h.getBucketIndex(v)
+	return h.lowestEquivalentValueGivenBucketIdx(v, bucketIdx)
+}
+
+func (h *Histogram) lowestEquivalentValueGivenBucketIdx(v int64, bucketIdx int32) int64 {
 	subBucketIdx := h.getSubBucketIdx(v, bucketIdx)
 	return h.valueFromIndex(bucketIdx, subBucketIdx)
 }
 
 func (h *Histogram) nextNonEquivalentValue(v int64) int64 {
-	return h.lowestEquivalentValue(v) + h.sizeOfEquivalentValueRange(v)
+	bucketIdx := h.getBucketIndex(v)
+	return h.lowestEquivalentValueGivenBucketIdx(v, bucketIdx) + h.sizeOfEquivalentValueRangeGivenBucketIdx(v, bucketIdx)
 }
 
 func (h *Histogram) highestEquivalentValue(v int64) int64 {
@@ -579,7 +589,7 @@ func (h *Histogram) countsIndex(bucketIdx, subBucketIdx int32) int32 {
 // Calculates the number of powers of two by which the value is greater than the biggest value that fits in
 // bucket 0. This is the bucket index since each successive bucket can hold a value 2x greater.
 func (h *Histogram) getBucketIndex(v int64) int32 {
-	pow2Ceiling := bitLen(v | h.subBucketMask)
+	var pow2Ceiling = int64(64 - bits.LeadingZeros64(uint64(v|h.subBucketMask)))
 	return int32(pow2Ceiling - int64(h.unitMagnitude) -
 		int64(h.subBucketHalfCountMagnitude+1))
 }
@@ -688,28 +698,6 @@ func (p *pIterator) next() bool {
 	}
 
 	return true
-}
-
-func bitLen(x int64) (n int64) {
-	for ; x >= 0x8000; x >>= 16 {
-		n += 16
-	}
-	if x >= 0x80 {
-		x >>= 8
-		n += 8
-	}
-	if x >= 0x8 {
-		x >>= 4
-		n += 4
-	}
-	if x >= 0x2 {
-		x >>= 2
-		n += 2
-	}
-	if x >= 0x1 {
-		n++
-	}
-	return
 }
 
 // CumulativeDistribution returns an ordered list of brackets of the
