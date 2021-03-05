@@ -158,6 +158,49 @@ func TestMin(t *testing.T) {
 	}
 }
 
+func TestHistogram_ValueAtPercentiles(t *testing.T) {
+	h := hdrhistogram.New(1, 3600*1000*1000, 3)
+
+	for i := 0; i < 1000000; i++ {
+		if err := h.RecordValue(int64(i)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	// Ensure calculating the percentiles altogether returns the same values
+	// multiple calls to ValueAtQuantile()
+	values := h.ValueAtPercentiles([]float64{0.0, 50.0, 95.0, 99.0, 100.0})
+	assert.Equal(t, h.ValueAtQuantile(0.0), values[0.0])
+	assert.Equal(t, h.ValueAtQuantile(50.0), values[50.0])
+	assert.Equal(t, h.ValueAtQuantile(95.0), values[95.0])
+	assert.Equal(t, h.ValueAtQuantile(99.0), values[99.0])
+	assert.Equal(t, h.ValueAtQuantile(100.0), values[100.0])
+
+	// negative test using out of bounds percentiles
+	assert.Equal(t, h.ValueAtQuantile(110.0), h.ValueAtPercentiles([]float64{110.0})[110.0])
+	// assert upper bound is enforced
+	assert.Equal(t, h.ValueAtQuantile(100.0), h.ValueAtPercentiles([]float64{110.0})[110.0])
+	assert.Equal(t, h.ValueAtQuantile(-1.0), h.ValueAtPercentiles([]float64{-1.0})[-1.0])
+	// assert lower bound is enforced
+	assert.Equal(t, h.ValueAtQuantile(0.0), h.ValueAtPercentiles([]float64{-1.0})[-1.0])
+	assert.Equal(t, int64(0), h.ValueAtPercentiles([]float64{-1.0})[-1.0])
+	h.Reset()
+	for i := 0; i < 10000; i++ {
+		if err := h.RecordValue(int64(1000)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := h.RecordValue(int64(100000000)); err != nil {
+		t.Fatal(err)
+	}
+	// ensure that percentiles that are calculated using the count number will be properly computed
+	values = h.ValueAtPercentiles([]float64{30.0, 99.0, 99.99, 99.999, 100.0})
+	assert.Equal(t, h.ValueAtQuantile(30.0), values[30.0])
+	assert.Equal(t, h.ValueAtQuantile(99.0), values[99.0])
+	assert.Equal(t, h.ValueAtQuantile(99.99), values[99.99])
+	assert.Equal(t, h.ValueAtQuantile(99.999), values[99.999])
+	assert.Equal(t, h.ValueAtQuantile(100.0), values[100.0])
+}
+
 func TestByteSize(t *testing.T) {
 	h := hdrhistogram.New(1, 100000, 3)
 
@@ -275,30 +318,6 @@ func TestHighestTrackableValue(t *testing.T) {
 	h := hdrhistogram.New(1, maxVal, 3)
 	if h.HighestTrackableValue() != maxVal {
 		t.Errorf("HighestTrackableValue figures was %v, expected %d", h.HighestTrackableValue(), maxVal)
-	}
-}
-
-// nolint
-func BenchmarkHistogramRecordValue(b *testing.B) {
-	h := hdrhistogram.New(1, 10000000, 3)
-	for i := 0; i < 1000000; i++ {
-		if err := h.RecordValue(int64(i)); err != nil {
-			b.Fatal(err)
-		}
-	}
-	b.ResetTimer()
-	b.ReportAllocs()
-
-	for i := 0; i < b.N; i++ {
-		h.RecordValue(100)
-	}
-}
-
-func BenchmarkNew(b *testing.B) {
-	b.ReportAllocs()
-
-	for i := 0; i < b.N; i++ {
-		hdrhistogram.New(1, 120000, 3) // this could track 1ms-2min
 	}
 }
 

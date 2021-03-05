@@ -7,6 +7,8 @@ import (
 	"fmt"
 	"io"
 	"math"
+	"math/bits"
+	"sort"
 )
 
 // A Bracket is a part of a cumulative distribution.
@@ -309,22 +311,34 @@ func (h *Histogram) setCountAtIndex(idx int, n int64) {
 // ValueAtQuantile returns the largest value that (100% - percentile) of the overall recorded value entries
 // in the histogram are either larger than or equivalent to.
 //
+// The passed quantile must be a float64 value in [0.0 .. 100.0]
 // Note that two values are "equivalent" if `ValuesAreEquivalent(value1,value2)` would return true.
 //
 // Returns 0 if no recorded values exist.
 func (h *Histogram) ValueAtQuantile(q float64) int64 {
-	if q > 100 {
-		q = 100
+	return h.ValueAtPercentile(q)
+}
+
+// ValueAtPercentile returns the largest value that (100% - percentile) of the overall recorded value entries
+// in the histogram are either larger than or equivalent to.
+//
+// The passed percentile must be a float64 value in [0.0 .. 100.0]
+// Note that two values are "equivalent" if `ValuesAreEquivalent(value1,value2)` would return true.
+//
+// Returns 0 if no recorded values exist.
+func (h *Histogram) ValueAtPercentile(percentile float64) int64 {
+	if percentile > 100 {
+		percentile = 100
 	}
 
 	total := int64(0)
-	countAtPercentile := int64(((q / 100) * float64(h.totalCount)) + 0.5)
+	countAtPercentile := int64(((percentile / 100) * float64(h.totalCount)) + 0.5)
 
 	i := h.iterator()
 	for i.next() {
 		total += i.countAtIdx
 		if total >= countAtPercentile {
-			if q == 0.0 {
+			if percentile == 0.0 {
 				return h.lowestEquivalentValue(i.valueFromIdx)
 			}
 			return h.highestEquivalentValue(i.valueFromIdx)
@@ -332,6 +346,45 @@ func (h *Histogram) ValueAtQuantile(q float64) int64 {
 	}
 
 	return 0
+}
+
+// ValueAtPercentiles, given an slice of percentiles returns a map containing for each passed percentile,
+// the largest value that (100% - percentile) of the overall recorded value entries
+// in the histogram are either larger than or equivalent to.
+//
+// Each element in the given an slice of percentiles must be a float64 value in [0.0 .. 100.0]
+// Note that two values are "equivalent" if `ValuesAreEquivalent(value1,value2)` would return true.
+//
+// Returns a map of 0's if no recorded values exist.
+func (h *Histogram) ValueAtPercentiles(percentiles []float64) (values map[float64]int64) {
+	sort.Float64s(percentiles)
+	totalQuantilesToCalculate := len(percentiles)
+	values = make(map[float64]int64, totalQuantilesToCalculate)
+	countAtPercentiles := make([]int64, totalQuantilesToCalculate)
+	for i, percentile := range percentiles {
+		if percentile > 100 {
+			percentile = 100
+		}
+		values[percentile] = 0
+		countAtPercentiles[i] = int64(((percentile / 100) * float64(h.totalCount)) + 0.5)
+	}
+
+	total := int64(0)
+	currentQuantileSlicePos := 0
+	i := h.iterator()
+	for currentQuantileSlicePos < totalQuantilesToCalculate && i.next() {
+		total += i.countAtIdx
+		for currentQuantileSlicePos < totalQuantilesToCalculate && total >= countAtPercentiles[currentQuantileSlicePos] {
+			currentPercentile := percentiles[currentQuantileSlicePos]
+			if currentPercentile == 0.0 {
+				values[currentPercentile] = h.lowestEquivalentValue(i.valueFromIdx)
+			} else {
+				values[currentPercentile] = h.highestEquivalentValue(i.valueFromIdx)
+			}
+			currentQuantileSlicePos++
+		}
+	}
+	return
 }
 
 // Determine if two values are equivalent with the histogram's resolution.
@@ -483,6 +536,10 @@ func (h *Histogram) pIterator(ticksPerHalfDistance int32) *pIterator {
 
 func (h *Histogram) sizeOfEquivalentValueRange(v int64) int64 {
 	bucketIdx := h.getBucketIndex(v)
+	return h.sizeOfEquivalentValueRangeGivenBucketIdx(v, bucketIdx)
+}
+
+func (h *Histogram) sizeOfEquivalentValueRangeGivenBucketIdx(v int64, bucketIdx int32) int64 {
 	subBucketIdx := h.getSubBucketIdx(v, bucketIdx)
 	adjustedBucket := bucketIdx
 	if subBucketIdx >= h.subBucketCount {
@@ -497,12 +554,17 @@ func (h *Histogram) valueFromIndex(bucketIdx, subBucketIdx int32) int64 {
 
 func (h *Histogram) lowestEquivalentValue(v int64) int64 {
 	bucketIdx := h.getBucketIndex(v)
+	return h.lowestEquivalentValueGivenBucketIdx(v, bucketIdx)
+}
+
+func (h *Histogram) lowestEquivalentValueGivenBucketIdx(v int64, bucketIdx int32) int64 {
 	subBucketIdx := h.getSubBucketIdx(v, bucketIdx)
 	return h.valueFromIndex(bucketIdx, subBucketIdx)
 }
 
 func (h *Histogram) nextNonEquivalentValue(v int64) int64 {
-	return h.lowestEquivalentValue(v) + h.sizeOfEquivalentValueRange(v)
+	bucketIdx := h.getBucketIndex(v)
+	return h.lowestEquivalentValueGivenBucketIdx(v, bucketIdx) + h.sizeOfEquivalentValueRangeGivenBucketIdx(v, bucketIdx)
 }
 
 func (h *Histogram) highestEquivalentValue(v int64) int64 {
@@ -527,7 +589,7 @@ func (h *Histogram) countsIndex(bucketIdx, subBucketIdx int32) int32 {
 // Calculates the number of powers of two by which the value is greater than the biggest value that fits in
 // bucket 0. This is the bucket index since each successive bucket can hold a value 2x greater.
 func (h *Histogram) getBucketIndex(v int64) int32 {
-	pow2Ceiling := bitLen(v | h.subBucketMask)
+	var pow2Ceiling = int64(64 - bits.LeadingZeros64(uint64(v|h.subBucketMask)))
 	return int32(pow2Ceiling - int64(h.unitMagnitude) -
 		int64(h.subBucketHalfCountMagnitude+1))
 }
@@ -636,28 +698,6 @@ func (p *pIterator) next() bool {
 	}
 
 	return true
-}
-
-func bitLen(x int64) (n int64) {
-	for ; x >= 0x8000; x >>= 16 {
-		n += 16
-	}
-	if x >= 0x80 {
-		x >>= 8
-		n += 8
-	}
-	if x >= 0x8 {
-		x >>= 4
-		n += 4
-	}
-	if x >= 0x2 {
-		x >>= 2
-		n += 2
-	}
-	if x >= 0x1 {
-		n++
-	}
-	return
 }
 
 // CumulativeDistribution returns an ordered list of brackets of the

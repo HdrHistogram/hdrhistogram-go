@@ -10,7 +10,7 @@ GOFMT=$(GOCMD) fmt
 GODOC=godoc
 
 .PHONY: all test coverage
-all: test coverage
+all: test
 
 checkfmt:
 	@echo 'Checking gofmt';\
@@ -26,7 +26,7 @@ lint:
 	golangci-lint run
 
 get:
-	$(GOGET) -t -v ./...
+	$(GOGET) -v ./...
 
 fmt:
 	$(GOFMT) ./...
@@ -35,7 +35,10 @@ test: get fmt
 	$(GOTEST) -count=1 ./...
 
 coverage: get test
-	$(GOTEST) -race -coverprofile=coverage.txt -covermode=atomic .
+	$(GOTEST) -count=1 -race -coverprofile=coverage.txt -covermode=atomic .
+
+benchmark: get
+	$(GOTEST) -bench=. -benchmem
 
 godoc:
 	$(GODOC)
