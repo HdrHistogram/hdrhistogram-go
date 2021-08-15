@@ -335,7 +335,7 @@ func (h *Histogram) ValueAtPercentile(percentile float64) int64 {
 	countAtPercentile := int64(((percentile / 100) * float64(h.totalCount)) + 0.5)
 
 	i := h.iterator()
-	for i.next() {
+	for i.nextCountAtIdx() {
 		total += i.countAtIdx
 		if total >= countAtPercentile {
 			if percentile == 0.0 {
@@ -372,7 +372,7 @@ func (h *Histogram) ValueAtPercentiles(percentiles []float64) (values map[float6
 	total := int64(0)
 	currentQuantileSlicePos := 0
 	i := h.iterator()
-	for currentQuantileSlicePos < totalQuantilesToCalculate && i.next() {
+	for currentQuantileSlicePos < totalQuantilesToCalculate && i.nextCountAtIdx() {
 		total += i.countAtIdx
 		for currentQuantileSlicePos < totalQuantilesToCalculate && total >= countAtPercentiles[currentQuantileSlicePos] {
 			currentPercentile := percentiles[currentQuantileSlicePos]
@@ -621,8 +621,8 @@ type iterator struct {
 	highestEquivalentValue               int64
 }
 
-// Returns the next element in the iteration.
-func (i *iterator) next() bool {
+// nextCountAtIdx does not update the iterator highestEquivalentValue in order to optimize cpu usage.
+func (i *iterator) nextCountAtIdx() bool {
 	if i.countToIdx >= i.h.totalCount {
 		return false
 	}
@@ -640,8 +640,15 @@ func (i *iterator) next() bool {
 	i.countAtIdx = i.h.getCountAtIndex(i.bucketIdx, i.subBucketIdx)
 	i.countToIdx += i.countAtIdx
 	i.valueFromIdx = i.h.valueFromIndex(i.bucketIdx, i.subBucketIdx)
-	i.highestEquivalentValue = i.h.highestEquivalentValue(i.valueFromIdx)
+	return true
+}
 
+// Returns the next element in the iteration.
+func (i *iterator) next() bool {
+	if !i.nextCountAtIdx() {
+		return false
+	}
+	i.highestEquivalentValue = i.h.highestEquivalentValue(i.valueFromIdx)
 	return true
 }
 
