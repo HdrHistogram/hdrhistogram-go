@@ -346,7 +346,7 @@ func (h *Histogram) getValueFromIdxUpToCount(countAtPercentile int64) int64 {
 	var bucketIdx int32 = 0
 	bucketBaseIdx := h.getBucketBaseIdx(bucketIdx)
 
-	for true {
+	for {
 		if countToIdx >= countAtPercentile {
 			break
 		}
@@ -605,10 +605,6 @@ func (h *Histogram) countsIndex(bucketIdx, subBucketIdx int32) int32 {
 
 func (h *Histogram) getBucketBaseIdx(bucketIdx int32) int32 {
 	return (bucketIdx + 1) << uint(h.subBucketHalfCountMagnitude)
-}
-
-func (h *Histogram) countsIndexGivenBucketBaseIdx(bucketBaseIdx, subBucketIdx int32) int32 {
-	return bucketBaseIdx + subBucketIdx - h.subBucketHalfCount
 }
 
 // return the lowest (and therefore highest precision) bucket index that can represent the value
