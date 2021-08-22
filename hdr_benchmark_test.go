@@ -40,14 +40,14 @@ func BenchmarkHistogramValueAtPercentile(b *testing.B) {
 	var sigfigs = 3
 	var totalDatapoints = 1000000
 	h, data := populateHistogramLogNormalDist(b, lowestDiscernibleValue, highestTrackableValue, sigfigs, totalDatapoints)
-	quantiles := make([]float64, b.N)
+	quantiles := make([]float64, totalDatapoints)
 	for i := range quantiles {
 		data[i] = rand.Float64() * 100.0
 	}
 	b.ResetTimer()
 	b.ReportAllocs()
 	for i := 0; i < b.N; i++ {
-		h.ValueAtPercentile(data[i])
+		h.ValueAtPercentile(data[i%totalDatapoints])
 	}
 }
 
