@@ -332,14 +332,29 @@ func (h *Histogram) ValueAtPercentile(percentile float64) int64 {
 	}
 
 	countAtPercentile := int64(((percentile / 100) * float64(h.totalCount)) + 0.5)
+	var countToIdx int64 = 0
+	var valueFromIdx int64 = 0
+	var subBucketIdx int32 = -1
+	var bucketIdx int32 = 0
 
-	i := h.iterator()
-	for i.nextCountAtIdx(countAtPercentile) {
+	for true {
+		if countToIdx >= countAtPercentile {
+			break
+		}
+		// increment bucket
+		subBucketIdx++
+		if subBucketIdx >= h.subBucketCount {
+			subBucketIdx = h.subBucketHalfCount
+			bucketIdx++
+		}
+
+		countToIdx += h.getCountAtIndex(bucketIdx, subBucketIdx)
+		valueFromIdx = h.valueFromIndex(bucketIdx, subBucketIdx)
 	}
 	if percentile == 0.0 {
-		return h.lowestEquivalentValue(i.valueFromIdx)
+		return h.lowestEquivalentValue(valueFromIdx)
 	}
-	return h.highestEquivalentValue(i.valueFromIdx)
+	return h.highestEquivalentValue(valueFromIdx)
 }
 
 // ValueAtPercentiles, given an slice of percentiles returns a map containing for each passed percentile,
