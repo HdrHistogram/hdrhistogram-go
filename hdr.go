@@ -336,6 +336,7 @@ func (h *Histogram) ValueAtPercentile(percentile float64) int64 {
 	var valueFromIdx int64 = 0
 	var subBucketIdx int32 = -1
 	var bucketIdx int32 = 0
+	bucketBaseIdx := h.getBucketBaseIdx(bucketIdx)
 
 	for true {
 		if countToIdx >= countAtPercentile {
@@ -346,10 +347,11 @@ func (h *Histogram) ValueAtPercentile(percentile float64) int64 {
 		if subBucketIdx >= h.subBucketCount {
 			subBucketIdx = h.subBucketHalfCount
 			bucketIdx++
+			bucketBaseIdx = h.getBucketBaseIdx(bucketIdx)
 		}
 
-		countToIdx += h.getCountAtIndex(bucketIdx, subBucketIdx)
-		valueFromIdx = h.valueFromIndex(bucketIdx, subBucketIdx)
+		countToIdx += h.getCountAtIndexGivenBucketBaseIdx(bucketBaseIdx, subBucketIdx)
+		valueFromIdx = int64(subBucketIdx) << uint(int64(bucketIdx)+h.unitMagnitude)
 	}
 	if percentile == 0.0 {
 		return h.lowestEquivalentValue(valueFromIdx)
@@ -588,10 +590,20 @@ func (h *Histogram) getCountAtIndex(bucketIdx, subBucketIdx int32) int64 {
 	return h.counts[h.countsIndex(bucketIdx, subBucketIdx)]
 }
 
+func (h *Histogram) getCountAtIndexGivenBucketBaseIdx(bucketBaseIdx, subBucketIdx int32) int64 {
+	return h.counts[bucketBaseIdx+subBucketIdx-h.subBucketHalfCount]
+}
+
 func (h *Histogram) countsIndex(bucketIdx, subBucketIdx int32) int32 {
-	bucketBaseIdx := (bucketIdx + 1) << uint(h.subBucketHalfCountMagnitude)
-	offsetInBucket := subBucketIdx - h.subBucketHalfCount
-	return bucketBaseIdx + offsetInBucket
+	return h.getBucketBaseIdx(bucketIdx) + subBucketIdx - h.subBucketHalfCount
+}
+
+func (h *Histogram) getBucketBaseIdx(bucketIdx int32) int32 {
+	return (bucketIdx + 1) << uint(h.subBucketHalfCountMagnitude)
+}
+
+func (h *Histogram) countsIndexGivenBucketBaseIdx(bucketBaseIdx, subBucketIdx int32) int32 {
+	return bucketBaseIdx + subBucketIdx - h.subBucketHalfCount
 }
 
 // return the lowest (and therefore highest precision) bucket index that can represent the value
