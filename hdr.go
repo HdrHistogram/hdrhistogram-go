@@ -331,21 +331,37 @@ func (h *Histogram) ValueAtPercentile(percentile float64) int64 {
 		percentile = 100
 	}
 
-	total := int64(0)
 	countAtPercentile := int64(((percentile / 100) * float64(h.totalCount)) + 0.5)
-
-	i := h.iterator()
-	for i.nextCountAtIdx() {
-		total += i.countAtIdx
-		if total >= countAtPercentile {
-			if percentile == 0.0 {
-				return h.lowestEquivalentValue(i.valueFromIdx)
-			}
-			return h.highestEquivalentValue(i.valueFromIdx)
-		}
+	valueFromIdx := h.getValueFromIdxUpToCount(countAtPercentile)
+	if percentile == 0.0 {
+		return h.lowestEquivalentValue(valueFromIdx)
 	}
+	return h.highestEquivalentValue(valueFromIdx)
+}
 
-	return 0
+func (h *Histogram) getValueFromIdxUpToCount(countAtPercentile int64) int64 {
+	var countToIdx int64
+	var valueFromIdx int64
+	var subBucketIdx int32 = -1
+	var bucketIdx int32
+	bucketBaseIdx := h.getBucketBaseIdx(bucketIdx)
+
+	for {
+		if countToIdx >= countAtPercentile {
+			break
+		}
+		// increment bucket
+		subBucketIdx++
+		if subBucketIdx >= h.subBucketCount {
+			subBucketIdx = h.subBucketHalfCount
+			bucketIdx++
+			bucketBaseIdx = h.getBucketBaseIdx(bucketIdx)
+		}
+
+		countToIdx += h.getCountAtIndexGivenBucketBaseIdx(bucketBaseIdx, subBucketIdx)
+		valueFromIdx = int64(subBucketIdx) << uint(int64(bucketIdx)+h.unitMagnitude)
+	}
+	return valueFromIdx
 }
 
 // ValueAtPercentiles, given an slice of percentiles returns a map containing for each passed percentile,
@@ -372,7 +388,7 @@ func (h *Histogram) ValueAtPercentiles(percentiles []float64) (values map[float6
 	total := int64(0)
 	currentQuantileSlicePos := 0
 	i := h.iterator()
-	for currentQuantileSlicePos < totalQuantilesToCalculate && i.nextCountAtIdx() {
+	for currentQuantileSlicePos < totalQuantilesToCalculate && i.nextCountAtIdx(h.totalCount) {
 		total += i.countAtIdx
 		for currentQuantileSlicePos < totalQuantilesToCalculate && total >= countAtPercentiles[currentQuantileSlicePos] {
 			currentPercentile := percentiles[currentQuantileSlicePos]
@@ -579,10 +595,16 @@ func (h *Histogram) getCountAtIndex(bucketIdx, subBucketIdx int32) int64 {
 	return h.counts[h.countsIndex(bucketIdx, subBucketIdx)]
 }
 
+func (h *Histogram) getCountAtIndexGivenBucketBaseIdx(bucketBaseIdx, subBucketIdx int32) int64 {
+	return h.counts[bucketBaseIdx+subBucketIdx-h.subBucketHalfCount]
+}
+
 func (h *Histogram) countsIndex(bucketIdx, subBucketIdx int32) int32 {
-	bucketBaseIdx := (bucketIdx + 1) << uint(h.subBucketHalfCountMagnitude)
-	offsetInBucket := subBucketIdx - h.subBucketHalfCount
-	return bucketBaseIdx + offsetInBucket
+	return h.getBucketBaseIdx(bucketIdx) + subBucketIdx - h.subBucketHalfCount
+}
+
+func (h *Histogram) getBucketBaseIdx(bucketIdx int32) int32 {
+	return (bucketIdx + 1) << uint(h.subBucketHalfCountMagnitude)
 }
 
 // return the lowest (and therefore highest precision) bucket index that can represent the value
@@ -622,8 +644,8 @@ type iterator struct {
 }
 
 // nextCountAtIdx does not update the iterator highestEquivalentValue in order to optimize cpu usage.
-func (i *iterator) nextCountAtIdx() bool {
-	if i.countToIdx >= i.h.totalCount {
+func (i *iterator) nextCountAtIdx(limit int64) bool {
+	if i.countToIdx >= limit {
 		return false
 	}
 	// increment bucket
@@ -645,7 +667,7 @@ func (i *iterator) nextCountAtIdx() bool {
 
 // Returns the next element in the iteration.
 func (i *iterator) next() bool {
-	if !i.nextCountAtIdx() {
+	if !i.nextCountAtIdx(i.h.totalCount) {
 		return false
 	}
 	i.highestEquivalentValue = i.h.highestEquivalentValue(i.valueFromIdx)
