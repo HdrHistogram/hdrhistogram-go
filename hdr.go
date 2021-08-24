@@ -340,10 +340,10 @@ func (h *Histogram) ValueAtPercentile(percentile float64) int64 {
 }
 
 func (h *Histogram) getValueFromIdxUpToCount(countAtPercentile int64) int64 {
-	var countToIdx int64 = 0
-	var valueFromIdx int64 = 0
+	var countToIdx int64
+	var valueFromIdx int64
 	var subBucketIdx int32 = -1
-	var bucketIdx int32 = 0
+	var bucketIdx int32
 	bucketBaseIdx := h.getBucketBaseIdx(bucketIdx)
 
 	for {
