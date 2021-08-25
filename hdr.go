@@ -221,14 +221,15 @@ func (h *Histogram) Mean() float64 {
 	if h.totalCount == 0 {
 		return 0
 	}
-	var total int64
+	var mean float64
+	totalCount := float64(h.totalCount)
 	i := h.iterator()
 	for i.next() {
 		if i.countAtIdx != 0 {
-			total += i.countAtIdx * h.medianEquivalentValue(i.valueFromIdx)
+			mean += float64(i.countAtIdx*h.medianEquivalentValue(i.valueFromIdx)) / totalCount
 		}
 	}
-	return float64(total) / float64(h.totalCount)
+	return mean
 }
 
 // StdDev returns the approximate standard deviation of the recorded values.
@@ -239,16 +240,17 @@ func (h *Histogram) StdDev() float64 {
 
 	mean := h.Mean()
 	geometricDevTotal := 0.0
+	totalCount := float64(h.totalCount)
 
 	i := h.iterator()
 	for i.next() {
 		if i.countAtIdx != 0 {
 			dev := float64(h.medianEquivalentValue(i.valueFromIdx)) - mean
-			geometricDevTotal += (dev * dev) * float64(i.countAtIdx)
+			geometricDevTotal += (dev * dev) * float64(i.countAtIdx) / totalCount
 		}
 	}
 
-	return math.Sqrt(geometricDevTotal / float64(h.totalCount))
+	return math.Sqrt(geometricDevTotal)
 }
 
 // Reset deletes all recorded values and restores the histogram to its original
