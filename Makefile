@@ -38,7 +38,7 @@ get:
 fmt: .prepare-golangci
 	@$(BIN_DIR)/golangci-lint run --fix
 
-test: get fmt
+test: get
 	$(GOTEST) -count=1 ./...
 
 coverage: get test

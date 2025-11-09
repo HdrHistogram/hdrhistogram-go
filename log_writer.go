@@ -109,8 +109,9 @@ func (lw *HistogramLogWriter) OutputIntervalHistogramWithLogOptions(histogram *H
 // Line starts with the leading text '#[StartTime:'
 func (lw *HistogramLogWriter) OutputStartTime(msec int64) (err error) {
 	secs := msec / 1000
-	iso_str := time.Unix(secs, msec%int64(1000)*int64(1000000000)).Format(time.RFC3339)
-	_, err = fmt.Fprintf(lw.log, "#[StartTime: %d (seconds since epoch), %s]\n", secs, iso_str)
+	nsecs := (msec % 1000) * int64(time.Millisecond) // 1 ms = 1e6 ns
+	isoStr := time.Unix(secs, nsecs).Format(time.RFC3339)
+	_, err = fmt.Fprintf(lw.log, "#[StartTime: %d (seconds since epoch), %s]\n", secs, isoStr)
 	return
 }
 
