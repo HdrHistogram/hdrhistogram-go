@@ -386,6 +386,13 @@ func (h *Histogram) ValueAtPercentiles(percentiles []float64) (values map[float6
 		countAtPercentiles[i] = int64(((percentile / 100) * float64(h.totalCount)) + 0.5)
 	}
 
+	// No recorded values: every target count is 0; return the map of 0's (matches the
+	// documented contract and the prior iterator behavior, whose limit==0 short-circuit
+	// left the zero-initialized values in place).
+	if h.totalCount == 0 {
+		return
+	}
+
 	// Single tight prefix-sum scan over the flat counts[] array resolves all
 	// (ascending) percentiles at once, instead of the per-bucket iterator walk.
 	// The flat index -> value conversion runs only at crossings.
