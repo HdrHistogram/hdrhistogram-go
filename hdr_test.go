@@ -201,6 +201,18 @@ func TestHistogram_ValueAtPercentiles(t *testing.T) {
 	assert.Equal(t, h.ValueAtQuantile(100.0), values[100.0])
 }
 
+// Regression: an empty histogram with lowestDiscernibleValue > 1 (unitMagnitude > 0)
+// must return zeros for every percentile from ValueAtPercentiles, per its documented
+// contract ("Returns a map of 0's if no recorded values exist").
+func TestValueAtPercentiles_EmptyHistogram(t *testing.T) {
+	h := hdrhistogram.New(100, 10000000, 3) // unitMagnitude = floor(log2(100)) = 6
+	pcts := []float64{0.0, 50.0, 90.0, 99.0, 100.0}
+	got := h.ValueAtPercentiles(pcts)
+	for _, p := range pcts {
+		assert.Equal(t, int64(0), got[p], "empty histogram, percentile %v", p)
+	}
+}
+
 func TestByteSize(t *testing.T) {
 	h := hdrhistogram.New(1, 100000, 3)
 

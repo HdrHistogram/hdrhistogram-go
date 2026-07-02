@@ -344,26 +344,29 @@ func (h *Histogram) ValueAtPercentile(percentile float64) int64 {
 }
 
 func (h *Histogram) getValueFromIdxUpToCount(countAtPercentile int64) int64 {
+	// Tight prefix-sum scan directly over the flat counts[] array (the logical
+	// bucket/sub-bucket walk visits exactly these indices in order). The
+	// index->value decomposition is done once, only for the crossing index,
+	// instead of every iteration.
 	var countToIdx int64
-	var valueFromIdx int64
-	var subBucketIdx int32 = -1
-	var bucketIdx int32
-	bucketBaseIdx := h.getBucketBaseIdx(bucketIdx)
-
-	for countToIdx < countAtPercentile {
-
-		// increment bucket
-		subBucketIdx++
-		if subBucketIdx >= h.subBucketCount {
-			subBucketIdx = h.subBucketHalfCount
-			bucketIdx++
-			bucketBaseIdx = h.getBucketBaseIdx(bucketIdx)
+	for idx := int32(0); idx < h.countsLen; idx++ {
+		countToIdx += h.counts[idx]
+		if countToIdx >= countAtPercentile {
+			return h.valueFromFlatIndex(idx)
 		}
-
-		countToIdx += h.getCountAtIndexGivenBucketBaseIdx(bucketBaseIdx, subBucketIdx)
-		valueFromIdx = int64(subBucketIdx) << uint(int64(bucketIdx)+h.unitMagnitude)
 	}
-	return valueFromIdx
+	return 0
+}
+
+// valueFromFlatIndex returns the value represented by a flat counts[] index.
+func (h *Histogram) valueFromFlatIndex(idx int32) int64 {
+	bucketIdx := (idx >> uint(h.subBucketHalfCountMagnitude)) - 1
+	subBucketIdx := (idx & (h.subBucketHalfCount - 1)) + h.subBucketHalfCount
+	if bucketIdx < 0 {
+		subBucketIdx -= h.subBucketHalfCount
+		bucketIdx = 0
+	}
+	return h.valueFromIndex(bucketIdx, subBucketIdx)
 }
 
 // ValueAtPercentiles, given an slice of percentiles returns a map containing for each passed percentile,
@@ -387,19 +390,29 @@ func (h *Histogram) ValueAtPercentiles(percentiles []float64) (values map[float6
 		countAtPercentiles[i] = int64(((percentile / 100) * float64(h.totalCount)) + 0.5)
 	}
 
+	// No recorded values: every target count is 0; return the map of 0's (matches the
+	// documented contract and the prior iterator behavior, whose limit==0 short-circuit
+	// left the zero-initialized values in place).
+	if h.totalCount == 0 {
+		return
+	}
+
+	// Single tight prefix-sum scan over the flat counts[] array resolves all
+	// (ascending) percentiles at once, instead of the per-bucket iterator walk.
+	// The flat index -> value conversion runs only at crossings.
 	total := int64(0)
-	currentQuantileSlicePos := 0
-	i := h.iterator()
-	for currentQuantileSlicePos < totalQuantilesToCalculate && i.nextCountAtIdx(h.totalCount) {
-		total += i.countAtIdx
-		for currentQuantileSlicePos < totalQuantilesToCalculate && total >= countAtPercentiles[currentQuantileSlicePos] {
-			currentPercentile := percentiles[currentQuantileSlicePos]
+	pos := 0
+	for idx := int32(0); idx < h.countsLen && pos < totalQuantilesToCalculate; idx++ {
+		total += h.counts[idx]
+		for pos < totalQuantilesToCalculate && total >= countAtPercentiles[pos] {
+			currentPercentile := percentiles[pos]
+			value := h.valueFromFlatIndex(idx)
 			if currentPercentile == 0.0 {
-				values[currentPercentile] = h.lowestEquivalentValue(i.valueFromIdx)
+				values[currentPercentile] = h.lowestEquivalentValue(value)
 			} else {
-				values[currentPercentile] = h.highestEquivalentValue(i.valueFromIdx)
+				values[currentPercentile] = h.highestEquivalentValue(value)
 			}
-			currentQuantileSlicePos++
+			pos++
 		}
 	}
 	return
@@ -595,10 +608,6 @@ func (h *Histogram) medianEquivalentValue(v int64) int64 {
 
 func (h *Histogram) getCountAtIndex(bucketIdx, subBucketIdx int32) int64 {
 	return h.counts[h.countsIndex(bucketIdx, subBucketIdx)]
-}
-
-func (h *Histogram) getCountAtIndexGivenBucketBaseIdx(bucketBaseIdx, subBucketIdx int32) int64 {
-	return h.counts[bucketBaseIdx+subBucketIdx-h.subBucketHalfCount]
 }
 
 func (h *Histogram) countsIndex(bucketIdx, subBucketIdx int32) int32 {
