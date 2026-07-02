@@ -297,7 +297,9 @@ func (h *Histogram) RecordCorrectedValue(v, expectedInterval int64) error {
 // the value is out of range.
 func (h *Histogram) RecordValues(v, n int64) error {
 	idx := h.countsIndexFor(v)
-	if idx < 0 || int(h.countsLen) <= idx {
+	// Single unsigned comparison instead of two signed ones: a negative idx wraps
+	// to a large unsigned value and is caught by the same bound.
+	if uint(idx) >= uint(h.countsLen) {
 		return fmt.Errorf("value %d is too large to be recorded", v)
 	}
 	h.setCountAtIndex(idx, n)
