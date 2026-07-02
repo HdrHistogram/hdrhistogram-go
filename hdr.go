@@ -596,10 +596,6 @@ func (h *Histogram) getCountAtIndex(bucketIdx, subBucketIdx int32) int64 {
 	return h.counts[h.countsIndex(bucketIdx, subBucketIdx)]
 }
 
-func (h *Histogram) getCountAtIndexGivenBucketBaseIdx(bucketBaseIdx, subBucketIdx int32) int64 {
-	return h.counts[bucketBaseIdx+subBucketIdx-h.subBucketHalfCount]
-}
-
 func (h *Histogram) countsIndex(bucketIdx, subBucketIdx int32) int32 {
 	return h.getBucketBaseIdx(bucketIdx) + subBucketIdx - h.subBucketHalfCount
 }
