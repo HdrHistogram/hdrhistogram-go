@@ -386,19 +386,22 @@ func (h *Histogram) ValueAtPercentiles(percentiles []float64) (values map[float6
 		countAtPercentiles[i] = int64(((percentile / 100) * float64(h.totalCount)) + 0.5)
 	}
 
+	// Single tight prefix-sum scan over the flat counts[] array resolves all
+	// (ascending) percentiles at once, instead of the per-bucket iterator walk.
+	// The flat index -> value conversion runs only at crossings.
 	total := int64(0)
-	currentQuantileSlicePos := 0
-	i := h.iterator()
-	for currentQuantileSlicePos < totalQuantilesToCalculate && i.nextCountAtIdx(h.totalCount) {
-		total += i.countAtIdx
-		for currentQuantileSlicePos < totalQuantilesToCalculate && total >= countAtPercentiles[currentQuantileSlicePos] {
-			currentPercentile := percentiles[currentQuantileSlicePos]
+	pos := 0
+	for idx := int32(0); idx < h.countsLen && pos < totalQuantilesToCalculate; idx++ {
+		total += h.counts[idx]
+		for pos < totalQuantilesToCalculate && total >= countAtPercentiles[pos] {
+			currentPercentile := percentiles[pos]
+			value := h.valueFromFlatIndex(idx)
 			if currentPercentile == 0.0 {
-				values[currentPercentile] = h.lowestEquivalentValue(i.valueFromIdx)
+				values[currentPercentile] = h.lowestEquivalentValue(value)
 			} else {
-				values[currentPercentile] = h.highestEquivalentValue(i.valueFromIdx)
+				values[currentPercentile] = h.highestEquivalentValue(value)
 			}
-			currentQuantileSlicePos++
+			pos++
 		}
 	}
 	return
