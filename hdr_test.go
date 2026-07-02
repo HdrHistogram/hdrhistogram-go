@@ -431,3 +431,33 @@ func TestHistogram_ValuesAreEquivalent(t *testing.T) {
 	assert.True(t, hist.ValuesAreEquivalent(100000000, hist.ValueAtQuantile(83.34)))
 	assert.True(t, hist.ValuesAreEquivalent(100000000, hist.ValueAtQuantile(99.0)))
 }
+
+// ValueAtPercentilesSlice must equal ValueAtPercentiles (map) and the singular
+// ValueAtPercentile, in input order, for unsorted + duplicate + edge inputs.
+func TestValueAtPercentilesSlice(t *testing.T) {
+	h := hdrhistogram.New(1, 3600*1000*1000, 3)
+	for i := 0; i < 1000000; i++ {
+		if err := h.RecordValue(int64(i)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	pcts := []float64{99.0, 0.0, 50.0, 99.0, 100.0, 99.99, 150.0, 50.0}
+	// copy because ValueAtPercentiles sorts in place
+	pctsCopy := append([]float64(nil), pcts...)
+	slice := h.ValueAtPercentilesSlice(pcts)
+	m := h.ValueAtPercentiles(pctsCopy)
+	for i, p := range pcts {
+		if p > 100 {
+			p = 100
+		}
+		assert.Equal(t, h.ValueAtPercentile(p), slice[i], "slice vs singular p=%v idx=%d", p, i)
+		assert.Equal(t, m[p], slice[i], "slice vs map p=%v idx=%d", p, i)
+	}
+	assert.Empty(t, h.ValueAtPercentilesSlice(nil))
+
+	// empty histogram -> all zeros
+	e := hdrhistogram.New(100, 10000000, 3)
+	for _, v := range e.ValueAtPercentilesSlice([]float64{0, 50, 99, 100}) {
+		assert.Equal(t, int64(0), v)
+	}
+}

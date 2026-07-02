@@ -418,6 +418,63 @@ func (h *Histogram) ValueAtPercentiles(percentiles []float64) (values map[float6
 	return
 }
 
+// ValueAtPercentilesSlice returns, for each requested percentile, the largest value that
+// (100% - percentile) of the recorded entries are larger than or equivalent to — the same
+// values as ValueAtPercentiles, but written to a []int64 in the SAME ORDER as percentiles
+// (input order is preserved even if percentiles is unsorted or has duplicates).
+//
+// It avoids the per-call map allocation and float64-key hashing of ValueAtPercentiles, and
+// does NOT mutate the input slice. Each percentile is clamped to [0, 100]; an empty histogram
+// yields all 0's; percentile 0.0 uses the lowest equivalent value.
+func (h *Histogram) ValueAtPercentilesSlice(percentiles []float64) []int64 {
+	n := len(percentiles)
+	result := make([]int64, n)
+	if n == 0 {
+		return result
+	}
+
+	countAtPercentiles := make([]int64, n)
+	for i, percentile := range percentiles {
+		if percentile > 100 {
+			percentile = 100
+		}
+		countAtPercentiles[i] = int64(((percentile / 100) * float64(h.totalCount)) + 0.5)
+	}
+	if h.totalCount == 0 {
+		return result // all zeros
+	}
+
+	// Resolve in ascending target order (preserving input order via the permutation),
+	// hoisting the next target so the scan stays a tight range loop.
+	order := make([]int, n)
+	for i := range order {
+		order[i] = i
+	}
+	sort.SliceStable(order, func(a, b int) bool { return countAtPercentiles[order[a]] < countAtPercentiles[order[b]] })
+
+	total := int64(0)
+	pos := 0
+	nextTarget := countAtPercentiles[order[0]]
+	for idx, c := range h.counts {
+		total += c
+		for total >= nextTarget {
+			oi := order[pos]
+			value := h.valueFromFlatIndex(int32(idx))
+			if percentiles[oi] == 0.0 {
+				result[oi] = h.lowestEquivalentValue(value)
+			} else {
+				result[oi] = h.highestEquivalentValue(value)
+			}
+			pos++
+			if pos >= n {
+				return result
+			}
+			nextTarget = countAtPercentiles[order[pos]]
+		}
+	}
+	return result
+}
+
 // Determine if two values are equivalent with the histogram's resolution.
 // Where "equivalent" means that value samples recorded for any two
 // equivalent values are counted in a common total count.
