@@ -120,7 +120,10 @@ func (lw *HistogramLogWriter) OutputStartTime(msec int64) (err error) {
 // Line starts with the leading text '#[BaseTime:'
 func (lw *HistogramLogWriter) OutputBaseTime(msec int64) (err error) {
 	secs := msec / 1000
-	_, err = fmt.Fprintf(lw.log, "#[Basetime: %d (seconds since epoch)]\n", secs)
+	// Capital "BaseTime" — matches the reader's (case-sensitive) regex and the
+	// Java HdrHistogram convention. The lowercase form was silently unreadable,
+	// so a base time written here was lost on read-back.
+	_, err = fmt.Fprintf(lw.log, "#[BaseTime: %d (seconds since epoch)]\n", secs)
 	return
 }
 

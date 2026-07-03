@@ -167,7 +167,11 @@ func (h *Histogram) ByteSize() int {
 }
 
 func (h *Histogram) getNormalizingIndexOffset() int32 {
-	return 1
+	// This port stores counts[] unrotated, so the serialized normalizing index
+	// offset must be 0. Emitting a non-zero value here makes conforming readers
+	// (the C and Java reference implementations) shift every bucket by that offset
+	// when they decode a histogram written by this library.
+	return 0
 }
 
 // Merge merges the data stored in the given histogram with the receiver,
@@ -226,7 +230,11 @@ func (h *Histogram) Mean() float64 {
 	i := h.iterator()
 	for i.next() {
 		if i.countAtIdx != 0 {
-			mean += float64(i.countAtIdx*h.medianEquivalentValue(i.valueFromIdx)) / totalCount
+			// Convert to float64 BEFORE multiplying: the int64 product
+			// countAtIdx * medianEquivalentValue overflows for large counts/values
+			// (wrapping ~9.2e18) and would silently corrupt the mean. StdDev already
+			// does the multiply in float64.
+			mean += float64(i.countAtIdx) * float64(h.medianEquivalentValue(i.valueFromIdx)) / totalCount
 		}
 	}
 	return mean
