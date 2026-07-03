@@ -97,9 +97,15 @@ func (hlr *HistogramLogReader) decodeNextIntervalHistogram() (histogram *Histogr
 		if err != nil {
 			if err == io.EOF {
 				err = nil
+				// A final line lacking a trailing newline is returned by
+				// ReadString together with io.EOF. Process it before
+				// terminating so the last interval is not silently dropped.
+				if line == "" {
+					break
+				}
+			} else {
 				break
 			}
-			break
 		}
 		if line[0] == '#' {
 			matchRes := hlr.reStartTime.FindStringSubmatch(line)
