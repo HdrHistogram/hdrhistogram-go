@@ -76,3 +76,17 @@ func TestOutputBaseTimeRoundTrip(t *testing.T) {
 			reader.baseTimeSec, reader.observedBaseTime)
 	}
 }
+
+// Regression for issue #61: OutputStartTime must format its ISO timestamp in UTC so
+// the log line is stable regardless of the process timezone.
+func TestOutputStartTimeIsUTC(t *testing.T) {
+	var buf bytes.Buffer
+	lw := NewHistogramLogWriter(&buf)
+	if err := lw.OutputStartTime(1000); err != nil { // 1 second since epoch
+		t.Fatal(err)
+	}
+	// 1s since epoch in UTC is 1970-01-01T00:00:01Z, independent of TZ.
+	if !bytes.Contains(buf.Bytes(), []byte("1970-01-01T00:00:01Z")) {
+		t.Fatalf("StartTime not formatted in UTC: %q", buf.String())
+	}
+}
