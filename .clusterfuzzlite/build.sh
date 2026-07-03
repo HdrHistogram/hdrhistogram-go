@@ -7,8 +7,11 @@
 # LIB_FUZZING_ENGINE: linker flag for fuzzing harnesses
 
 # compile_native_go_fuzzer relies on the go-118-fuzz-build helper to convert
-# native Go (testing.F) fuzz targets into libFuzzer harnesses.
+# native Go (testing.F) fuzz targets into libFuzzer harnesses. It installs the
+# generator binary AND requires the matching testing shim as a module dependency
+# (the rewritten harness imports go-118-fuzz-build/testing).
 go install github.com/AdamKorcz/go-118-fuzz-build@latest
+go get github.com/AdamKorcz/go-118-fuzz-build/testing
 
 # Build one libFuzzer harness per native Go fuzz target.
 compile_native_go_fuzzer $(go list ./...) FuzzDecode fuzz_decode
