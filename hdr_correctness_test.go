@@ -70,7 +70,7 @@ func TestOutputBaseTimeRoundTrip(t *testing.T) {
 		t.Fatalf("writer emitted non-canonical base-time header: %q", buf.String())
 	}
 	reader := NewHistogramLogReader(&buf)
-	reader.NextIntervalHistogram() // drives header parsing
+	_, _ = reader.NextIntervalHistogram() // drives header parsing
 	if !reader.observedBaseTime || reader.baseTimeSec != 3600 {
 		t.Fatalf("base time not round-tripped: baseTimeSec=%v observed=%v (want 3600/true)",
 			reader.baseTimeSec, reader.observedBaseTime)
