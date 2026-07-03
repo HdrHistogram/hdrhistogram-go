@@ -18,6 +18,10 @@ compile_native_go_fuzzer $(go list ./...) FuzzDecode fuzz_decode
 compile_native_go_fuzzer $(go list ./...) FuzzLogReader fuzz_log_reader
 compile_native_go_fuzzer $(go list ./...) FuzzRecordEncodeDecode fuzz_record_encode_decode
 compile_native_go_fuzzer $(go list ./...) FuzzZigZagRoundTrip fuzz_zigzag_round_trip
+compile_native_go_fuzzer $(go list ./...) FuzzDecodeInvariants fuzz_decode_invariants
+compile_native_go_fuzzer $(go list ./...) FuzzPercentileQueries fuzz_percentile_queries
+compile_native_go_fuzzer $(go list ./...) FuzzZigZagDecodeBytes fuzz_zigzag_decode_bytes
+compile_native_go_fuzzer $(go list ./...) FuzzMergeMetamorphic fuzz_merge_metamorphic
 
 # Prepare corpus for the log reader fuzzer from the checked-in .hlog samples.
 zip -j $OUT/fuzz_log_reader_seed_corpus.zip \
