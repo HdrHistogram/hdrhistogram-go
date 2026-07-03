@@ -479,6 +479,8 @@ func (h *Histogram) ValueAtPercentilesSlice(percentiles []float64) []int64 {
 	for i, percentile := range percentiles {
 		if percentile > 100 {
 			percentile = 100
+		} else if percentile < 0 {
+			percentile = 0
 		}
 		countAtPercentiles[i] = int64(((percentile / 100) * float64(h.totalCount)) + 0.5)
 	}
@@ -502,7 +504,10 @@ func (h *Histogram) ValueAtPercentilesSlice(percentiles []float64) []int64 {
 		for total >= nextTarget {
 			oi := order[pos]
 			value := h.valueFromFlatIndex(int32(idx))
-			if percentiles[oi] == 0.0 {
+			// percentile <= 0 clamps to the 0th percentile, which uses the lowest
+			// equivalent value (matching ValueAtPercentile); anything above uses the
+			// highest equivalent value.
+			if percentiles[oi] <= 0.0 {
 				result[oi] = h.lowestEquivalentValue(value)
 			} else {
 				result[oi] = h.highestEquivalentValue(value)

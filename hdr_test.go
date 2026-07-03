@@ -504,4 +504,19 @@ func TestValueAtPercentilesSlice(t *testing.T) {
 	for _, v := range e.ValueAtPercentilesSlice([]float64{0, 50, 99, 100}) {
 		assert.Equal(t, int64(0), v)
 	}
+
+	// Negative percentiles clamp to the 0th percentile (documented contract). With
+	// unitMagnitude > 0 (New(100, ...)) the 0th percentile is the lowest equivalent
+	// value, NOT highestEquivalentValue(0); a negative input must not leak the latter.
+	hc := hdrhistogram.New(100, 10000000, 3)
+	for i := int64(100); i <= 100000; i += 100 {
+		if err := hc.RecordValue(i); err != nil {
+			t.Fatal(err)
+		}
+	}
+	neg := hc.ValueAtPercentilesSlice([]float64{-1, -0.0001, 0.0, -100})
+	want := hc.ValueAtPercentile(0)
+	for i, got := range neg {
+		assert.Equal(t, want, got, "negative/zero percentile must equal ValueAtPercentile(0), idx=%d", i)
+	}
 }
