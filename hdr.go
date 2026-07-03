@@ -298,8 +298,13 @@ func (h *Histogram) RecordCorrectedValue(v, expectedInterval int64) error {
 func (h *Histogram) RecordValues(v, n int64) error {
 	idx := h.countsIndexFor(v)
 	// Single unsigned comparison instead of two signed ones: a negative idx wraps
-	// to a large unsigned value and is caught by the same bound.
-	if uint(idx) >= uint(h.countsLen) {
+	// to a large unsigned value and is caught by the same bound. Guard against
+	// len(h.counts) — the direct memory-safety bound for the h.counts[idx] store —
+	// so the compiler proves that access in range and elides its bounds check.
+	// len(h.counts) == h.countsLen for every histogram (New allocates them equal;
+	// Import copies into the New-sized slice), so this is equivalent to the old
+	// h.countsLen guard on all inputs.
+	if uint(idx) >= uint(len(h.counts)) {
 		return fmt.Errorf("value %d is too large to be recorded", v)
 	}
 	h.setCountAtIndex(idx, n)
@@ -343,18 +348,49 @@ func (h *Histogram) ValueAtPercentile(percentile float64) int64 {
 	return h.highestEquivalentValue(valueFromIdx)
 }
 
+// scanBlock is the fixed block width for the prefix-sum skip-scan. Eight int64
+// counters are summed with independent accumulators (no loop-carried dependency
+// on the running total, no per-element branch), so whole blocks that cannot cross
+// the target are skipped in one step; only the single crossing block is walked
+// element-by-element to find the exact index.
+const scanBlock = 8
+
 func (h *Histogram) getValueFromIdxUpToCount(countAtPercentile int64) int64 {
-	// Tight prefix-sum scan directly over the flat counts[] array (the logical
+	// Prefix-sum scan directly over the flat counts[] array (the logical
 	// bucket/sub-bucket walk visits exactly these indices in order). The
-	// index->value decomposition is done once, only for the crossing index,
-	// instead of every iteration.
-	// Range over the slice so the compiler elides the per-element bounds check
-	// on counts[idx] (len(counts) == countsLen).
+	// index->value decomposition is done once, only for the crossing index.
+	//
+	// Rather than add-and-branch on every element (a serial dependency chain),
+	// sum a block of scanBlock counters at a time and skip the whole block when
+	// the running total still cannot reach countAtPercentile. Counts are
+	// non-negative and countAtPercentile >= 0, so the first index at which the
+	// cumulative sum reaches the target is identical to the plain linear scan.
+	counts := h.counts
+	n := len(counts)
 	var countToIdx int64
-	for idx, c := range h.counts {
-		countToIdx += c
+	i := 0
+	for ; i+scanBlock <= n; i += scanBlock {
+		// One slice bounds check per block (not per element); blk[0..7] are then
+		// proven in range, so the 8-way sum below carries no per-element checks.
+		blk := counts[i : i+scanBlock : i+scanBlock]
+		s := blk[0] + blk[1] + blk[2] + blk[3] + blk[4] + blk[5] + blk[6] + blk[7]
+		if countToIdx+s >= countAtPercentile {
+			// This block crosses the target: find the exact element. Guaranteed
+			// to return within the block since countToIdx+s >= countAtPercentile.
+			for j := 0; j < scanBlock; j++ {
+				countToIdx += blk[j]
+				if countToIdx >= countAtPercentile {
+					return h.valueFromFlatIndex(int32(i + j))
+				}
+			}
+		}
+		countToIdx += s
+	}
+	// Tail: fewer than scanBlock elements remain.
+	for ; i < n; i++ {
+		countToIdx += counts[i]
 		if countToIdx >= countAtPercentile {
-			return h.valueFromFlatIndex(int32(idx))
+			return h.valueFromFlatIndex(int32(i))
 		}
 	}
 	return 0
@@ -586,11 +622,15 @@ func (h *Histogram) Export() *Snapshot {
 	}
 }
 
-// Import returns a new Histogram populated from the Snapshot data (which the
-// caller must stop accessing).
+// Import returns a new Histogram populated from the Snapshot data.
 func Import(s *Snapshot) *Histogram {
 	h := New(s.LowestTrackableValue, s.HighestTrackableValue, int(s.SignificantFigures))
-	h.counts = s.Counts
+	// Copy into the histogram's own counts[] (already sized to h.countsLen by New)
+	// rather than aliasing the caller's slice. copy handles a length mismatch
+	// gracefully: a longer Snapshot is truncated to the histogram geometry, and a
+	// shorter one leaves the remaining buckets zero instead of panicking below.
+	// This also keeps len(h.counts) == h.countsLen an invariant relied on elsewhere.
+	copy(h.counts, s.Counts)
 	totalCount := int64(0)
 	for i := int32(0); i < h.countsLen; i++ {
 		countAtIndex := h.counts[i]
