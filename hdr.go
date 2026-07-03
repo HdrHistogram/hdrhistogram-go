@@ -331,6 +331,14 @@ func (h *Histogram) ValueAtQuantile(q float64) int64 {
 //
 // Returns 0 if no recorded values exist.
 func (h *Histogram) ValueAtPercentile(percentile float64) int64 {
+	// No recorded values: return 0 per the documented contract. Without this, a
+	// histogram with lowestDiscernibleValue > 1 (unitMagnitude > 0) returns
+	// highestEquivalentValue(0) (e.g. 63 for New(100, ...)) for any percentile > 0,
+	// even though TotalCount() == 0. The map and slice variants already short-circuit
+	// on an empty histogram; this makes the singular API consistent. (issue #60)
+	if h.totalCount == 0 {
+		return 0
+	}
 	if percentile > 100 {
 		percentile = 100
 	} else if percentile < 0 {

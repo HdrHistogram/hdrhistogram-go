@@ -505,3 +505,17 @@ func TestValueAtPercentiles_ClampingContracts(t *testing.T) {
 		t.Fatalf("ValueAtPercentiles([-5])[-5] = %d, want 0th-percentile %d", got, want)
 	}
 }
+
+// Regression for issue #60: an empty histogram with lowestDiscernibleValue > 1
+// (unitMagnitude > 0) must return 0 for every percentile, not highestEquivalentValue(0).
+func TestValueAtPercentile_EmptyHistogramReturnsZero(t *testing.T) {
+	h := hdrhistogram.New(100, 10000000, 3)
+	if h.TotalCount() != 0 {
+		t.Fatalf("precondition: TotalCount = %d, want 0", h.TotalCount())
+	}
+	for _, p := range []float64{0, 25, 50, 90, 99, 100} {
+		if got := h.ValueAtPercentile(p); got != 0 {
+			t.Errorf("empty ValueAtPercentile(%v) = %d, want 0", p, got)
+		}
+	}
+}
