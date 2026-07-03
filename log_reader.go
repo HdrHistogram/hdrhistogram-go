@@ -125,6 +125,11 @@ func (hlr *HistogramLogReader) decodeNextIntervalHistogram() (histogram *Histogr
 
 		if strings.HasPrefix(line, "Tag=") {
 			commaPos := strings.Index(line, ",")
+			// A "Tag=" line with no comma is malformed; line[4:commaPos] would be
+			// line[4:-1] and panic. Skip the line instead.
+			if commaPos < 0 {
+				continue
+			}
 			tag = line[4:commaPos]
 			line = line[commaPos+1:]
 		}
