@@ -390,6 +390,50 @@ func TestExportImport(t *testing.T) {
 
 }
 
+// TestImportLengthMismatch ensures Import tolerates a Snapshot whose Counts
+// length does not match the histogram geometry: a longer slice is truncated to
+// the geometry, a shorter one leaves the trailing buckets zero — neither panics.
+func TestImportLengthMismatch(t *testing.T) {
+	min, max, sig := int64(1), int64(10000000), 3
+	ref := hdrhistogram.New(min, max, sig)
+	for i := int64(1); i <= 100000; i++ {
+		if err := ref.RecordValue(i); err != nil {
+			t.Fatal(err)
+		}
+	}
+	full := ref.Export()
+
+	// Longer Counts: append surplus buckets that must be ignored.
+	longer := &hdrhistogram.Snapshot{
+		LowestTrackableValue:  full.LowestTrackableValue,
+		HighestTrackableValue: full.HighestTrackableValue,
+		SignificantFigures:    full.SignificantFigures,
+		Counts:                append(append([]int64(nil), full.Counts...), 7, 7, 7),
+	}
+	if got := hdrhistogram.Import(longer); !got.Equals(ref) {
+		t.Error("oversized Snapshot should import to the same histogram (surplus truncated)")
+	}
+
+	// Shorter Counts: truncate; Import must not panic and must sum what's present.
+	shortLen := len(full.Counts) / 2
+	shorter := &hdrhistogram.Snapshot{
+		LowestTrackableValue:  full.LowestTrackableValue,
+		HighestTrackableValue: full.HighestTrackableValue,
+		SignificantFigures:    full.SignificantFigures,
+		Counts:                append([]int64(nil), full.Counts[:shortLen]...),
+	}
+	var wantTotal int64
+	for _, c := range full.Counts[:shortLen] {
+		if c > 0 {
+			wantTotal += c
+		}
+	}
+	got := hdrhistogram.Import(shorter) // must not panic
+	if got.TotalCount() != wantTotal {
+		t.Errorf("truncated Snapshot TotalCount = %d, want %d", got.TotalCount(), wantTotal)
+	}
+}
+
 func TestEquals(t *testing.T) {
 	h1 := hdrhistogram.New(1, 10000000, 3)
 	for i := 0; i < 1000000; i++ {
@@ -459,5 +503,20 @@ func TestValueAtPercentilesSlice(t *testing.T) {
 	e := hdrhistogram.New(100, 10000000, 3)
 	for _, v := range e.ValueAtPercentilesSlice([]float64{0, 50, 99, 100}) {
 		assert.Equal(t, int64(0), v)
+	}
+
+	// Negative percentiles clamp to the 0th percentile (documented contract). With
+	// unitMagnitude > 0 (New(100, ...)) the 0th percentile is the lowest equivalent
+	// value, NOT highestEquivalentValue(0); a negative input must not leak the latter.
+	hc := hdrhistogram.New(100, 10000000, 3)
+	for i := int64(100); i <= 100000; i += 100 {
+		if err := hc.RecordValue(i); err != nil {
+			t.Fatal(err)
+		}
+	}
+	neg := hc.ValueAtPercentilesSlice([]float64{-1, -0.0001, 0.0, -100})
+	want := hc.ValueAtPercentile(0)
+	for i, got := range neg {
+		assert.Equal(t, want, got, "negative/zero percentile must equal ValueAtPercentile(0), idx=%d", i)
 	}
 }
