@@ -519,3 +519,26 @@ func TestValueAtPercentile_EmptyHistogramReturnsZero(t *testing.T) {
 		}
 	}
 }
+
+// Regression: the 0th percentile must equal the recorded minimum, and low
+// percentiles of a small histogram must not read below Min (Java's
+// max(countAtPercentile,1) rule). A fuzz invariant surfaced this.
+func TestValueAtPercentile_LowPercentilesReachMin(t *testing.T) {
+	h := hdrhistogram.New(1, 1000000, 3)
+	if err := h.RecordValue(42); err != nil { // single sample; Min == Max == 42
+		t.Fatal(err)
+	}
+	min := h.Min()
+	if p0 := h.ValueAtPercentile(0); p0 != min {
+		t.Errorf("ValueAtPercentile(0) = %d, want Min %d", p0, min)
+	}
+	for _, p := range []float64{0, 1, 5, 25, 50, 90, 99, 100} {
+		v := h.ValueAtPercentile(p)
+		if v < h.Min() || v > h.Max() {
+			t.Errorf("ValueAtPercentile(%v) = %d outside [Min %d, Max %d]", p, v, h.Min(), h.Max())
+		}
+		if m := h.ValueAtPercentiles([]float64{p})[p]; m < h.Min() || m > h.Max() {
+			t.Errorf("ValueAtPercentiles(%v) = %d outside [Min %d, Max %d]", p, m, h.Min(), h.Max())
+		}
+	}
+}
