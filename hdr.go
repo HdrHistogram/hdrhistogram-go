@@ -371,7 +371,9 @@ func (h *Histogram) ValueAtPercentile(percentile float64) int64 {
 	// Reach at least the first recorded entry so low percentiles of a small
 	// histogram don't round the target to 0 and read an empty leading bucket below
 	// Min (and the 0th percentile is the recorded minimum). Matches the reference
-	// max(countAtPercentile, 1).
+	// max(countAtPercentile, 1). An empty histogram is already handled above; on the
+	// off chance totalCount is 0 here, getValueFromIdxUpToCount(1) finds no crossing
+	// and returns 0, so this floor never changes the empty result.
 	if countAtPercentile < 1 {
 		countAtPercentile = 1
 	}
