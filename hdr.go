@@ -348,11 +348,13 @@ func (h *Histogram) getValueFromIdxUpToCount(countAtPercentile int64) int64 {
 	// bucket/sub-bucket walk visits exactly these indices in order). The
 	// index->value decomposition is done once, only for the crossing index,
 	// instead of every iteration.
+	// Range over the slice so the compiler elides the per-element bounds check
+	// on counts[idx] (len(counts) == countsLen).
 	var countToIdx int64
-	for idx := int32(0); idx < h.countsLen; idx++ {
-		countToIdx += h.counts[idx]
+	for idx, c := range h.counts {
+		countToIdx += c
 		if countToIdx >= countAtPercentile {
-			return h.valueFromFlatIndex(idx)
+			return h.valueFromFlatIndex(int32(idx))
 		}
 	}
 	return 0
@@ -400,19 +402,23 @@ func (h *Histogram) ValueAtPercentiles(percentiles []float64) (values map[float6
 	// Single tight prefix-sum scan over the flat counts[] array resolves all
 	// (ascending) percentiles at once, instead of the per-bucket iterator walk.
 	// The flat index -> value conversion runs only at crossings.
+	// Range over the slice so the per-element bounds check on counts[idx] is elided.
 	total := int64(0)
 	pos := 0
-	for idx := int32(0); idx < h.countsLen && pos < totalQuantilesToCalculate; idx++ {
-		total += h.counts[idx]
+	for idx, c := range h.counts {
+		total += c
 		for pos < totalQuantilesToCalculate && total >= countAtPercentiles[pos] {
 			currentPercentile := percentiles[pos]
-			value := h.valueFromFlatIndex(idx)
+			value := h.valueFromFlatIndex(int32(idx))
 			if currentPercentile == 0.0 {
 				values[currentPercentile] = h.lowestEquivalentValue(value)
 			} else {
 				values[currentPercentile] = h.highestEquivalentValue(value)
 			}
 			pos++
+		}
+		if pos >= totalQuantilesToCalculate {
+			break
 		}
 	}
 	return
