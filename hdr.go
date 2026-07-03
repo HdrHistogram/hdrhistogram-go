@@ -294,7 +294,7 @@ func (h *Histogram) RecordCorrectedValue(v, expectedInterval int64) error {
 }
 
 // RecordValues records n occurrences of the given value, returning an error if
-// the value is out of range.
+// the value is out of range or n is negative.
 func (h *Histogram) RecordValues(v, n int64) error {
 	idx := h.countsIndexFor(v)
 	// Single unsigned comparison instead of two signed ones: a negative idx wraps
@@ -306,6 +306,12 @@ func (h *Histogram) RecordValues(v, n int64) error {
 	// h.countsLen guard on all inputs.
 	if uint(idx) >= uint(len(h.counts)) {
 		return fmt.Errorf("value %d is too large to be recorded", v)
+	}
+	// A negative n would silently drive counts[idx] and totalCount negative,
+	// corrupting every subsequent percentile/mean query. Reject it. n == 0 is a
+	// harmless no-op and is left to fall through.
+	if n < 0 {
+		return fmt.Errorf("cannot record a negative count %d", n)
 	}
 	h.setCountAtIndex(idx, n)
 

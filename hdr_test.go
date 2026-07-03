@@ -245,6 +245,40 @@ func TestRecordCorrectedValueStall(t *testing.T) {
 	}
 }
 
+func TestRecordValuesRejectsNegativeCount(t *testing.T) {
+	h := hdrhistogram.New(1, 100000, 3)
+	if err := h.RecordValue(50); err != nil {
+		t.Fatal(err)
+	}
+	before := h.TotalCount()
+
+	// A negative count must be rejected, not silently subtracted (which would
+	// drive counts[idx] and TotalCount negative and corrupt every query).
+	if err := h.RecordValues(50, -5); err == nil {
+		t.Fatal("RecordValues with a negative count should return an error")
+	}
+	if got := h.TotalCount(); got != before {
+		t.Errorf("TotalCount changed after a rejected negative record: got %d, want %d", got, before)
+	}
+
+	// A negative count on an otherwise-empty histogram must not go negative.
+	empty := hdrhistogram.New(1, 100000, 3)
+	if err := empty.RecordValues(50, -3); err == nil {
+		t.Fatal("RecordValues with a negative count should return an error")
+	}
+	if got := empty.TotalCount(); got != 0 {
+		t.Errorf("TotalCount went negative: got %d, want 0", got)
+	}
+
+	// n == 0 is a legal no-op.
+	if err := empty.RecordValues(50, 0); err != nil {
+		t.Errorf("RecordValues with count 0 should be a no-op, got error: %v", err)
+	}
+	if got := empty.TotalCount(); got != 0 {
+		t.Errorf("TotalCount after a zero-count record: got %d, want 0", got)
+	}
+}
+
 func TestCumulativeDistribution(t *testing.T) {
 	h := hdrhistogram.New(1, 100000000, 3)
 
