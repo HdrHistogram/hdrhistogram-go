@@ -75,9 +75,13 @@ func Decode(encoded []byte) (rh *Histogram, err error) {
 		return
 	}
 	decodeLengthOfCompressedContents := int32(len(decoded[8:]))
-	// A negative length (from attacker-controlled bytes) must be rejected too:
-	// decoded[8:8+negative] would panic on an invalid low>high slice.
-	if lengthOfCompressedContents < 0 || lengthOfCompressedContents > decodeLengthOfCompressedContents {
+	// A negative length (from attacker-controlled bytes) must be rejected: the
+	// slice decoded[8:8+negative] would panic on an invalid low>high bound.
+	if lengthOfCompressedContents < 0 {
+		err = fmt.Errorf("negative lengthOfCompressedContents: %d", lengthOfCompressedContents)
+		return
+	}
+	if lengthOfCompressedContents > decodeLengthOfCompressedContents {
 		err = fmt.Errorf("the compressed contents buffer is smaller than the lengthOfCompressedContents. got %d want %d", decodeLengthOfCompressedContents, lengthOfCompressedContents)
 		return
 	}
