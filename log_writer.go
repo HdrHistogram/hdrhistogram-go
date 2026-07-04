@@ -110,7 +110,10 @@ func (lw *HistogramLogWriter) OutputIntervalHistogramWithLogOptions(histogram *H
 func (lw *HistogramLogWriter) OutputStartTime(msec int64) (err error) {
 	secs := msec / 1000
 	nsecs := (msec % 1000) * int64(time.Millisecond) // 1 ms = 1e6 ns
-	isoStr := time.Unix(secs, nsecs).Format(time.RFC3339)
+	// Format in UTC so the log line is stable regardless of the process's local
+	// timezone (TZ). Without .UTC() the ISO timestamp — and any test asserting it —
+	// depends on the machine's timezone. (issue #61)
+	isoStr := time.Unix(secs, nsecs).UTC().Format(time.RFC3339)
 	_, err = fmt.Fprintf(lw.log, "#[StartTime: %d (seconds since epoch), %s]\n", secs, isoStr)
 	return
 }
@@ -120,7 +123,10 @@ func (lw *HistogramLogWriter) OutputStartTime(msec int64) (err error) {
 // Line starts with the leading text '#[BaseTime:'
 func (lw *HistogramLogWriter) OutputBaseTime(msec int64) (err error) {
 	secs := msec / 1000
-	_, err = fmt.Fprintf(lw.log, "#[Basetime: %d (seconds since epoch)]\n", secs)
+	// Capital "BaseTime" — matches the reader's (case-sensitive) regex and the
+	// Java HdrHistogram convention. The lowercase form was silently unreadable,
+	// so a base time written here was lost on read-back.
+	_, err = fmt.Fprintf(lw.log, "#[BaseTime: %d (seconds since epoch)]\n", secs)
 	return
 }
 
