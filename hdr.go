@@ -260,6 +260,12 @@ func (h *Histogram) Reset() {
 	for i := range h.counts {
 		h.counts[i] = 0
 	}
+	// Also clear the metadata New() initializes, so a reused histogram doesn't carry
+	// a stale tag / start / end time into the next interval (the doc promises the
+	// "original state").
+	h.tag = ""
+	h.startTimeMs = 0
+	h.endTimeMs = 0
 }
 
 // RecordValue records the given value, returning an error if the value is out

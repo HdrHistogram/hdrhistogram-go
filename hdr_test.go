@@ -578,3 +578,28 @@ func TestValueAtPercentile_EmptyHistogramReturnsZero(t *testing.T) {
 		}
 	}
 }
+
+// Reset must restore the histogram to its original state, including the metadata
+// (tag, start/end time), not just the recorded counts.
+func TestResetClearsMetadata(t *testing.T) {
+	h := hdrhistogram.New(1, 1000000, 3)
+	h.SetTag("svcA")
+	h.SetStartTimeMs(111)
+	h.SetEndTimeMs(222)
+	if err := h.RecordValue(500); err != nil {
+		t.Fatal(err)
+	}
+	h.Reset()
+	if h.Tag() != "" {
+		t.Errorf("Reset did not clear tag: %q", h.Tag())
+	}
+	if h.StartTimeMs() != 0 {
+		t.Errorf("Reset did not clear startTimeMs: %d", h.StartTimeMs())
+	}
+	if h.EndTimeMs() != 0 {
+		t.Errorf("Reset did not clear endTimeMs: %d", h.EndTimeMs())
+	}
+	if h.TotalCount() != 0 {
+		t.Errorf("Reset did not clear totalCount: %d", h.TotalCount())
+	}
+}
