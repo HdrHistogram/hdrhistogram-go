@@ -84,6 +84,54 @@ func assertGoldenInterval0(t *testing.T, h *Histogram) {
 	assert.Equal(t, goldenIntv0P99, h.ValueAtPercentile(99))
 }
 
+// drainAllIntervals reads every interval histogram from the reader and
+// returns them, failing the test on any decode error.
+func drainAllIntervals(t *testing.T, reader *HistogramLogReader) []*Histogram {
+	t.Helper()
+	var out []*Histogram
+	for {
+		h, err := reader.NextIntervalHistogram()
+		assert.Nil(t, err)
+		if h == nil {
+			break
+		}
+		out = append(out, h)
+	}
+	return out
+}
+
+// TestHistogramLogReader_finalLineNoTrailingNewline verifies that the final
+// interval line is still decoded when the log does not end with a newline.
+// bufio.Reader.ReadString returns the buffered final line together with
+// io.EOF; the reader must process it rather than drop it.
+func TestHistogramLogReader_finalLineNoTrailingNewline(t *testing.T) {
+	var b bytes.Buffer
+	writer := NewHistogramLogWriter(&b)
+	for k := 0; k < 3; k++ {
+		h := New(1, 1000, 3)
+		assert.Nil(t, h.RecordValue(int64(10+k)))
+		h.SetStartTimeMs(int64(1000 * (k + 1)))
+		h.SetEndTimeMs(int64(1000 * (k + 2)))
+		assert.Nil(t, writer.OutputIntervalHistogram(h))
+	}
+
+	raw := b.Bytes()
+	withNewline := drainAllIntervals(t, NewHistogramLogReader(bytes.NewReader(raw)))
+	assert.Equal(t, 3, len(withNewline))
+
+	// Strip the single trailing newline and confirm all three intervals
+	// are still returned (previously the last one was silently dropped).
+	stripped := raw
+	if n := len(stripped); n > 0 && stripped[n-1] == '\n' {
+		stripped = stripped[:n-1]
+	}
+	withoutNewline := drainAllIntervals(t, NewHistogramLogReader(bytes.NewReader(stripped)))
+	assert.Equal(t, 3, len(withoutNewline))
+	assert.Equal(t, withNewline[2].TotalCount(), withoutNewline[2].TotalCount())
+	assert.Equal(t, withNewline[2].Max(), withoutNewline[2].Max())
+	assert.Equal(t, withNewline[2].StartTimeMs(), withoutNewline[2].StartTimeMs())
+}
+
 func TestHistogramLogReader_logV2(t *testing.T) {
 	dat, err := os.ReadFile("./test/jHiccup-2.0.7S.logV2.hlog")
 	assert.Equal(t, nil, err)
