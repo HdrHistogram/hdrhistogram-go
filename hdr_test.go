@@ -664,3 +664,29 @@ func TestPercentiles_ReachMinAcrossAPIs(t *testing.T) {
 		}
 	}
 }
+
+// Regression: a negative percentile must clamp to the 0th percentile identically
+// across all three APIs. In particular ValueAtPercentilesSlice must not leak the
+// first bucket's highest-equivalent (e.g. 127 for New(100,...)) while the singular
+// and map APIs return its lowest-equivalent (64). Guards the exact inconsistency
+// raised in review of the max(count,1) floor.
+func TestPercentiles_NegativeClampAcrossAPIs(t *testing.T) {
+	for _, cfg := range []struct{ lo, hi int64 }{{1, 1000000}, {100, 10000000}} {
+		h := hdrhistogram.New(cfg.lo, cfg.hi, 3)
+		for i := int64(0); i < 1000; i++ {
+			if err := h.RecordValue(cfg.lo + i); err != nil {
+				t.Fatal(err)
+			}
+		}
+		want := h.ValueAtPercentile(0) // the 0th-percentile / lowest-equivalent minimum
+		for _, p := range []float64{-1, -0.0001, -100} {
+			single := h.ValueAtPercentile(p)
+			mapv := h.ValueAtPercentiles([]float64{p})[p]
+			slicev := h.ValueAtPercentilesSlice([]float64{p})[0]
+			if single != want || mapv != want || slicev != want {
+				t.Errorf("New(%d,%d): negative percentile %v inconsistent: single=%d map=%d slice=%d, want %d",
+					cfg.lo, cfg.hi, p, single, mapv, slicev, want)
+			}
+		}
+	}
+}
