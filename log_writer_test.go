@@ -61,16 +61,51 @@ func TestHistogramLogWriterReader(t *testing.T) {
 	assert.Equal(t, histogram.EndTimeMs(), outHistogram.EndTimeMs())
 }
 
+// Interval 0 of both logV2 fixtures is the same jHiccup snapshot. These
+// golden values pin the decoded contents so a regression in the reader or
+// the V2 decoder is caught, rather than only that a non-nil histogram was
+// returned.
+const (
+	goldenIntv0TotalCount int64 = 741
+	goldenIntv0StartMs    int64 = 1441812279601
+	goldenIntv0EndMs      int64 = 1441812280608
+	goldenIntv0Max        int64 = 2768895
+	goldenIntv0P50        int64 = 344063
+	goldenIntv0P99        int64 = 409599
+)
+
+func assertGoldenInterval0(t *testing.T, h *Histogram) {
+	t.Helper()
+	assert.Equal(t, goldenIntv0TotalCount, h.TotalCount())
+	assert.Equal(t, goldenIntv0StartMs, h.StartTimeMs())
+	assert.Equal(t, goldenIntv0EndMs, h.EndTimeMs())
+	assert.Equal(t, goldenIntv0Max, h.Max())
+	assert.Equal(t, goldenIntv0P50, h.ValueAtPercentile(50))
+	assert.Equal(t, goldenIntv0P99, h.ValueAtPercentile(99))
+}
+
 func TestHistogramLogReader_logV2(t *testing.T) {
 	dat, err := os.ReadFile("./test/jHiccup-2.0.7S.logV2.hlog")
 	assert.Equal(t, nil, err)
 	r := bytes.NewReader(dat)
 	reader := NewHistogramLogReader(r)
-	for i := 0; i < 61; i++ {
-		outHistogram, err := reader.NextIntervalHistogram()
-		assert.Equal(t, nil, err)
-		assert.NotNil(t, outHistogram)
+
+	first, err := reader.NextIntervalHistogram()
+	assert.Nil(t, err)
+	assert.NotNil(t, first)
+	assertGoldenInterval0(t, first)
+
+	// Drain the rest and assert the full interval count.
+	count := 1
+	for {
+		h, err := reader.NextIntervalHistogram()
+		assert.Nil(t, err)
+		if h == nil {
+			break
+		}
+		count++
 	}
+	assert.Equal(t, 62, count)
 }
 
 func TestHistogramLogReader_tagged_log(t *testing.T) {
@@ -78,9 +113,20 @@ func TestHistogramLogReader_tagged_log(t *testing.T) {
 	assert.Equal(t, nil, err)
 	r := bytes.NewReader(dat)
 	reader := NewHistogramLogReader(r)
-	for i := 0; i < 42; i++ {
-		outHistogram, err := reader.NextIntervalHistogram()
-		assert.Equal(t, nil, err)
-		assert.NotNil(t, outHistogram)
+
+	first, err := reader.NextIntervalHistogram()
+	assert.Nil(t, err)
+	assert.NotNil(t, first)
+	assertGoldenInterval0(t, first)
+
+	count := 1
+	for {
+		h, err := reader.NextIntervalHistogram()
+		assert.Nil(t, err)
+		if h == nil {
+			break
+		}
+		count++
 	}
+	assert.Equal(t, 42, count)
 }
