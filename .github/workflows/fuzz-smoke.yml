@@ -1,0 +1,34 @@
+on: [push, pull_request]
+name: Fuzz smoke
+jobs:
+  fuzz:
+    strategy:
+      fail-fast: false
+      matrix:
+        target: [FuzzDecode, FuzzLogReader, FuzzRecordEncodeDecode, FuzzZigZagRoundTrip, FuzzDecodeInvariants, FuzzPercentileQueries, FuzzZigZagDecodeBytes, FuzzMergeMetamorphic]
+    runs-on: ubuntu-latest
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v5
+
+    - name: Install Go
+      uses: actions/setup-go@v6
+      with:
+        go-version-file: go.mod
+
+    - name: Fuzz ${{ matrix.target }}
+      run: go test -run='^$' -fuzz='^${{ matrix.target }}$' -fuzztime=30s ./...
+
+  race:
+    runs-on: ubuntu-latest
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v5
+
+    - name: Install Go
+      uses: actions/setup-go@v6
+      with:
+        go-version-file: go.mod
+
+    - name: Test with race detector
+      run: go test -race ./...

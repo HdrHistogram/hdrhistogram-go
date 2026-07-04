@@ -56,6 +56,12 @@ func Decode(encoded []byte) (rh *Histogram, err error) {
 	if err != nil {
 		return
 	}
+	// The 8-byte header (cookie + compressed length) must be present before we
+	// slice it, otherwise a short/truncated input would panic on decoded[0:8].
+	if len(decoded) < 8 {
+		err = fmt.Errorf("encoded histogram too short: got %d bytes, need at least 8", len(decoded))
+		return
+	}
 	rbuf := bytes.NewBuffer(decoded[0:8])
 	r32 := make([]int32, 2)
 	err = binary.Read(rbuf, binary.BigEndian, &r32)
@@ -69,6 +75,12 @@ func Decode(encoded []byte) (rh *Histogram, err error) {
 		return
 	}
 	decodeLengthOfCompressedContents := int32(len(decoded[8:]))
+	// A negative length (from attacker-controlled bytes) must be rejected: the
+	// slice decoded[8:8+negative] would panic on an invalid low>high bound.
+	if lengthOfCompressedContents < 0 {
+		err = fmt.Errorf("negative lengthOfCompressedContents: %d", lengthOfCompressedContents)
+		return
+	}
 	if lengthOfCompressedContents > decodeLengthOfCompressedContents {
 		err = fmt.Errorf("the compressed contents buffer is smaller than the lengthOfCompressedContents. got %d want %d", decodeLengthOfCompressedContents, lengthOfCompressedContents)
 		return
@@ -178,6 +190,12 @@ func decodeCompressedFormat(compressedContents []byte, headerSize int) (rh *Hist
 		return
 	}
 	decompressedSliceLen := int32(len(decompressedSlice))
+	// The fixed-size header must be fully present before it is sliced/parsed,
+	// otherwise a stream decompressing to fewer than headerSize bytes would panic.
+	if len(decompressedSlice) < headerSize {
+		err = fmt.Errorf("decompressed histogram truncated: got %d bytes, need at least %d", len(decompressedSlice), headerSize)
+		return
+	}
 	cookie, PayloadLength, _, NumberOfSignificantValueDigits, LowestTrackableValue, HighestTrackableValue, _, err := decodeDeCompressedHeaderFormat(decompressedSlice[0:headerSize])
 	if err != nil {
 		return
@@ -210,9 +228,20 @@ func fillCountsArrayFromSourceBuffer(payload []byte, rh *Histogram) (err error) 
 		}
 		payloadSlicePos += n
 		if count < 0 {
+			// A zero-run must not advance the destination index past the counts
+			// array; a corrupt payload could otherwise push it out of range before
+			// the next positive write.
 			zerosCount = -count
+			if zerosCount > int64(len(rh.counts))-dstIndex {
+				return fmt.Errorf("corrupt histogram payload: zero-run of %d at index %d overflows counts array of length %d", zerosCount, dstIndex, len(rh.counts))
+			}
 			dstIndex += zerosCount
 		} else {
+			// setCountAtIndex writes h.counts[dstIndex] unchecked (it is the record
+			// hot path); the decode path validates the untrusted index here instead.
+			if dstIndex >= int64(len(rh.counts)) {
+				return fmt.Errorf("corrupt histogram payload: index %d overflows counts array of length %d", dstIndex, len(rh.counts))
+			}
 			rh.setCountAtIndex(int(dstIndex), count)
 			dstIndex += 1
 		}
