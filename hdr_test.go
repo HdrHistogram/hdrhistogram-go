@@ -520,3 +520,61 @@ func TestValueAtPercentilesSlice(t *testing.T) {
 		assert.Equal(t, want, got, "negative/zero percentile must equal ValueAtPercentile(0), idx=%d", i)
 	}
 }
+
+// Regression for the percentile clamping contracts (C5/C6):
+//   - ValueAtPercentiles must key the result map only by the caller's percentiles,
+//     with no phantom key from clamping >100 inputs.
+//   - Negative percentiles clamp to the 0th percentile (lowest equivalent), not
+//     highestEquivalentValue(0), which leaks e.g. 63 for New(100, ...).
+func TestValueAtPercentiles_ClampingContracts(t *testing.T) {
+	// Phantom-key: input {150} must yield exactly {150: ...}, never a stray 100 key.
+	h := hdrhistogram.New(1, 3600*1000*1000, 3)
+	for i := int64(0); i < 100000; i++ {
+		if err := h.RecordValue(i); err != nil {
+			t.Fatal(err)
+		}
+	}
+	m := h.ValueAtPercentiles([]float64{150})
+	if len(m) != 1 {
+		t.Fatalf("ValueAtPercentiles([150]) returned %d keys %v, want exactly 1 (150)", len(m), m)
+	}
+	if _, ok := m[150]; !ok {
+		t.Fatalf("ValueAtPercentiles([150]) missing key 150: %v", m)
+	}
+	if _, ok := m[100]; ok {
+		t.Fatalf("ValueAtPercentiles([150]) has phantom key 100: %v", m)
+	}
+	// A clamped-high input returns the p100 value.
+	if m[150] != h.ValueAtPercentile(100) {
+		t.Fatalf("ValueAtPercentiles([150])[150] = %d, want p100 %d", m[150], h.ValueAtPercentile(100))
+	}
+
+	// Negative clamp with unitMagnitude > 0 (New(100, ...)): the 63 leak case.
+	hc := hdrhistogram.New(100, 10000000, 3)
+	for i := int64(100); i <= 100000; i += 100 {
+		if err := hc.RecordValue(i); err != nil {
+			t.Fatal(err)
+		}
+	}
+	want := hc.ValueAtPercentile(0)
+	if got := hc.ValueAtPercentile(-1); got != want {
+		t.Fatalf("ValueAtPercentile(-1) = %d, want 0th-percentile %d (highestEquivalentValue(0) leak?)", got, want)
+	}
+	if got := hc.ValueAtPercentiles([]float64{-5})[-5]; got != want {
+		t.Fatalf("ValueAtPercentiles([-5])[-5] = %d, want 0th-percentile %d", got, want)
+	}
+}
+
+// Regression for issue #60: an empty histogram with lowestDiscernibleValue > 1
+// (unitMagnitude > 0) must return 0 for every percentile, not highestEquivalentValue(0).
+func TestValueAtPercentile_EmptyHistogramReturnsZero(t *testing.T) {
+	h := hdrhistogram.New(100, 10000000, 3)
+	if h.TotalCount() != 0 {
+		t.Fatalf("precondition: TotalCount = %d, want 0", h.TotalCount())
+	}
+	for _, p := range []float64{0, 25, 50, 90, 99, 100} {
+		if got := h.ValueAtPercentile(p); got != 0 {
+			t.Errorf("empty ValueAtPercentile(%v) = %d, want 0", p, got)
+		}
+	}
+}

@@ -336,8 +336,23 @@ func (h *Histogram) ValueAtQuantile(q float64) int64 {
 //
 // Returns 0 if no recorded values exist.
 func (h *Histogram) ValueAtPercentile(percentile float64) int64 {
+	// No recorded values: return 0 per the documented contract. Without this, a
+	// histogram with lowestDiscernibleValue > 1 (unitMagnitude > 0) returns
+	// highestEquivalentValue(0) (e.g. 63 for New(100, ...)) for any percentile > 0,
+	// even though TotalCount() == 0. The map and slice variants already short-circuit
+	// on an empty histogram; this makes the singular API consistent. (issue #60)
+	if h.totalCount == 0 {
+		return 0
+	}
 	if percentile > 100 {
 		percentile = 100
+	} else if percentile < 0 {
+		// Clamp to the 0th percentile. Without this, a negative percentile yields a
+		// negative target that resolves at flat index 0 and — since the branch below
+		// tests the (clamped) input against 0.0 — would otherwise return
+		// highestEquivalentValue there (e.g. 63 for New(100, ...)) instead of the
+		// lowest-equivalent 0th percentile. Matches ValueAtPercentilesSlice.
+		percentile = 0
 	}
 
 	countAtPercentile := int64(((percentile / 100) * float64(h.totalCount)) + 0.5)
@@ -421,11 +436,19 @@ func (h *Histogram) ValueAtPercentiles(percentiles []float64) (values map[float6
 	values = make(map[float64]int64, totalQuantilesToCalculate)
 	countAtPercentiles := make([]int64, totalQuantilesToCalculate)
 	for i, percentile := range percentiles {
-		if percentile > 100 {
-			percentile = 100
+		// Clamp to [0,100] for the target computation, but key the result map by the
+		// ORIGINAL percentile the caller passed. Mutating the loop variable before
+		// seeding the map produced a phantom key: ValueAtPercentiles([]float64{150})
+		// returned {100: 0, 150: <value>} because the seed used the clamped 100 while
+		// the scan below writes the original 150.
+		clamped := percentile
+		if clamped > 100 {
+			clamped = 100
+		} else if clamped < 0 {
+			clamped = 0
 		}
 		values[percentile] = 0
-		countAtPercentiles[i] = int64(((percentile / 100) * float64(h.totalCount)) + 0.5)
+		countAtPercentiles[i] = int64(((clamped / 100) * float64(h.totalCount)) + 0.5)
 	}
 
 	// No recorded values: every target count is 0; return the map of 0's (matches the
@@ -446,7 +469,9 @@ func (h *Histogram) ValueAtPercentiles(percentiles []float64) (values map[float6
 		for pos < totalQuantilesToCalculate && total >= countAtPercentiles[pos] {
 			currentPercentile := percentiles[pos]
 			value := h.valueFromFlatIndex(int32(idx))
-			if currentPercentile == 0.0 {
+			// A percentile <= 0 clamps to the 0th percentile (lowest equivalent);
+			// anything above uses the highest equivalent value.
+			if currentPercentile <= 0.0 {
 				values[currentPercentile] = h.lowestEquivalentValue(value)
 			} else {
 				values[currentPercentile] = h.highestEquivalentValue(value)
