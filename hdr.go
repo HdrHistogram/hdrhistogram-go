@@ -368,6 +368,15 @@ func (h *Histogram) ValueAtPercentile(percentile float64) int64 {
 	}
 
 	countAtPercentile := int64(((percentile / 100) * float64(h.totalCount)) + 0.5)
+	// Reach at least the first recorded entry so low percentiles of a small
+	// histogram don't round the target to 0 and read an empty leading bucket below
+	// Min (and the 0th percentile is the recorded minimum). Matches the reference
+	// max(countAtPercentile, 1). An empty histogram is already handled above; on the
+	// off chance totalCount is 0 here, getValueFromIdxUpToCount(1) finds no crossing
+	// and returns 0, so this floor never changes the empty result.
+	if countAtPercentile < 1 {
+		countAtPercentile = 1
+	}
 	valueFromIdx := h.getValueFromIdxUpToCount(countAtPercentile)
 	if percentile == 0.0 {
 		return h.lowestEquivalentValue(valueFromIdx)
@@ -461,6 +470,9 @@ func (h *Histogram) ValueAtPercentiles(percentiles []float64) (values map[float6
 		}
 		values[percentile] = 0
 		countAtPercentiles[i] = int64(((clamped / 100) * float64(h.totalCount)) + 0.5)
+		if countAtPercentiles[i] < 1 {
+			countAtPercentiles[i] = 1 // reach at least the first recorded entry
+		}
 	}
 
 	// No recorded values: every target count is 0; return the map of 0's (matches the
@@ -520,6 +532,9 @@ func (h *Histogram) ValueAtPercentilesSlice(percentiles []float64) []int64 {
 			percentile = 0
 		}
 		countAtPercentiles[i] = int64(((percentile / 100) * float64(h.totalCount)) + 0.5)
+		if countAtPercentiles[i] < 1 {
+			countAtPercentiles[i] = 1 // reach at least the first recorded entry
+		}
 	}
 	if h.totalCount == 0 {
 		return result // all zeros
