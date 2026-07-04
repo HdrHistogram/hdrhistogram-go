@@ -58,11 +58,7 @@ func BenchmarkHistogramValueAtPercentileGivenPercentileSlice(b *testing.B) {
 	var lowestDiscernibleValue int64 = 1
 	var sigfigs = 3
 	var totalDatapoints = 1000000
-	h, data := populateHistogramLogNormalDist(b, lowestDiscernibleValue, highestTrackableValue, sigfigs, totalDatapoints)
-	quantiles := make([]float64, b.N)
-	for i := range quantiles {
-		data[i] = rand.Float64() * 100.0
-	}
+	h, _ := populateHistogramLogNormalDist(b, lowestDiscernibleValue, highestTrackableValue, sigfigs, totalDatapoints)
 	percentilesOfInterest := []float64{50.0, 95.0, 99.0, 99.9}
 	b.ResetTimer()
 	b.ReportAllocs()
@@ -80,11 +76,7 @@ func BenchmarkHistogramValueAtPercentilesGivenPercentileSlice(b *testing.B) {
 	var lowestDiscernibleValue int64 = 1
 	var sigfigs = 3
 	var totalDatapoints = 1000000
-	h, data := populateHistogramLogNormalDist(b, lowestDiscernibleValue, highestTrackableValue, sigfigs, totalDatapoints)
-	quantiles := make([]float64, b.N)
-	for i := range quantiles {
-		data[i] = rand.Float64() * 100.0
-	}
+	h, _ := populateHistogramLogNormalDist(b, lowestDiscernibleValue, highestTrackableValue, sigfigs, totalDatapoints)
 	percentilesOfInterest := []float64{50.0, 95.0, 99.0, 99.9}
 	b.ResetTimer()
 	b.ReportAllocs()
