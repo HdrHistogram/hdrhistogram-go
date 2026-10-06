@@ -81,6 +81,14 @@ func (h *Histogram) SetStartTimeMs(startTimeMs int64) {
 // Note: the numberOfSignificantValueDigits must be [1,5]. If lower than 1 the numberOfSignificantValueDigits will be
 // forced to 1, and if higher than 5 the numberOfSignificantValueDigits will be forced to 5.
 func New(lowestDiscernibleValue, highestTrackableValue int64, numberOfSignificantValueDigits int) *Histogram {
+	h := newGeometry(lowestDiscernibleValue, highestTrackableValue, numberOfSignificantValueDigits)
+	h.counts = make([]int64, h.countsLen)
+	return h
+}
+
+// newGeometry computes the bucket geometry of a Histogram without allocating
+// its counts array. PackedHistogram uses it as a geometry-only oracle.
+func newGeometry(lowestDiscernibleValue, highestTrackableValue int64, numberOfSignificantValueDigits int) *Histogram {
 	if numberOfSignificantValueDigits < 1 {
 		numberOfSignificantValueDigits = 1
 	} else if numberOfSignificantValueDigits > 5 {
@@ -135,7 +143,6 @@ func New(lowestDiscernibleValue, highestTrackableValue int64, numberOfSignifican
 		bucketCount:                 bucketCount,
 		countsLen:                   countsLen,
 		totalCount:                  0,
-		counts:                      make([]int64, countsLen),
 		startTimeMs:                 0,
 		endTimeMs:                   0,
 		tag:                         "",
