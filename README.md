@@ -71,6 +71,17 @@ If you are using Go modules, you can update to the exact point of transfter usin
 go mod edit -replace github.com/codahale/hdrhistogram=github.com/HdrHistogram/hdrhistogram-go@v0.9.0
 ```
 
+## Fuzzing
+-------
+
+Every `FuzzXxx` target in the module root is fuzzed in CI, with no list to maintain:
+
+* **Fuzz smoke** (every push and PR): 30 seconds per target, starting from the corpus the nightly run has built.
+* **Fuzz nightly**: 30 minutes per target. Each target's corpus is kept in the Actions cache, so every night continues from the last. A failure uploads the failing input as an artifact and opens (or updates) a tracking issue. It can also be started by hand with a longer `fuzztime`.
+* **ClusterFuzzLite**: libFuzzer with AddressSanitizer on PRs, plus a nightly batch run and corpus pruning. New targets must be registered in `.clusterfuzzlite/build.sh`; CI fails if one is missing.
+
+Locally, `make fuzz FUZZTIME=1m` fuzzes every target in turn. To reproduce a CI failure, copy the uploaded input into `testdata/fuzz/<Target>/` and run `go test -run='^<Target>$' .`.
+
 ## Credits
 -------
 

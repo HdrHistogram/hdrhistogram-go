@@ -1,0 +1,25 @@
+name: ClusterFuzzLite cron tasks
+# Corpus pruning, which ClusterFuzzLite requires alongside batch fuzzing so the
+# stored corpus stays minimal. Runs after the nightly batch job.
+on:
+  schedule:
+    - cron: '23 6 * * *'
+  workflow_dispatch:
+permissions: read-all
+jobs:
+  Pruning:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+    - name: Build Fuzzers
+      id: build
+      uses: google/clusterfuzzlite/actions/build_fuzzers@v1
+      with:
+        language: go
+    - name: Run Fuzzers
+      id: run
+      uses: google/clusterfuzzlite/actions/run_fuzzers@v1
+      with:
+        github-token: ${{ secrets.GITHUB_TOKEN }}
+        fuzz-seconds: 600
+        mode: 'prune'

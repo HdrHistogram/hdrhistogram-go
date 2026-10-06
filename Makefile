@@ -17,7 +17,7 @@ BIN_DIR := "${MAKEFILE_PATH}/bin"
 
 GOLANGCI_VERSION=2.6.0
 
-.PHONY: all test coverage
+.PHONY: all test coverage fuzz
 all: test
 
 checkfmt:
@@ -31,6 +31,14 @@ checkfmt:
 
 lint: .prepare-golangci
 	@$(BIN_DIR)/golangci-lint run
+
+# Fuzz every native Go fuzz target in turn: make fuzz [FUZZTIME=5m]
+FUZZTIME ?= 30s
+fuzz:
+	@for t in $$(.github/scripts/fuzz-targets.sh); do \
+		echo "== $$t ($(FUZZTIME))"; \
+		$(GOTEST) -run='^$$' -fuzz="^$$t\$$" -fuzztime=$(FUZZTIME) . || exit 1; \
+	done
 
 get:
 	$(GOGET) -v ./...

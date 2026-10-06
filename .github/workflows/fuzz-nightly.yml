@@ -1,0 +1,148 @@
+name: Fuzz nightly
+# Long native Go fuzzing of every Fuzz* target. Each target's generated corpus
+# is persisted in the Actions cache, so every night continues from the last one
+# and the per-PR "Fuzz smoke" job starts from it too.
+on:
+  schedule:
+    - cron: '17 2 * * *'
+  workflow_dispatch:
+    inputs:
+      fuzztime:
+        description: 'Fuzzing time per target (Go duration, e.g. 30m, 2h)'
+        required: false
+        default: '30m'
+  pull_request:
+    # Validate the workflow itself on PRs that change it, with a short run.
+    paths:
+      - '.github/workflows/fuzz-nightly.yml'
+      - '.github/scripts/fuzz-targets.sh'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: fuzz-nightly-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+env:
+  FUZZTIME: ${{ github.event_name == 'pull_request' && '45s' || inputs.fuzztime || '30m' }}
+
+jobs:
+  targets:
+    runs-on: ubuntu-latest
+    outputs:
+      matrix: ${{ steps.list.outputs.matrix }}
+    steps:
+    - uses: actions/checkout@v5
+    - id: list
+      run: echo "matrix=$(.github/scripts/fuzz-targets.sh --json)" >> "$GITHUB_OUTPUT"
+
+  fuzz:
+    needs: targets
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+    strategy:
+      fail-fast: false
+      matrix:
+        target: ${{ fromJSON(needs.targets.outputs.matrix) }}
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v5
+
+    - name: Install Go
+      uses: actions/setup-go@v6
+      with:
+        go-version-file: go.mod
+        # The build cache would also capture GOCACHE/fuzz; the corpus has its
+        # own cache below so the two never overwrite each other.
+        cache: false
+
+    - name: Locate corpus
+      id: corpus
+      run: |
+        dir="$(go env GOCACHE)/fuzz/$(go list -m)/${{ matrix.target }}"
+        mkdir -p "$dir"
+        echo "dir=$dir" >> "$GITHUB_OUTPUT"
+
+    - name: Restore corpus
+      uses: actions/cache/restore@v4
+      with:
+        path: ${{ steps.corpus.outputs.dir }}
+        key: fuzz-corpus-${{ matrix.target }}-${{ github.run_id }}
+        restore-keys: fuzz-corpus-${{ matrix.target }}-
+
+    - name: Fuzz ${{ matrix.target }} for ${{ env.FUZZTIME }}
+      id: fuzz
+      run: |
+        set -o pipefail
+        before=$(find "${{ steps.corpus.outputs.dir }}" -type f | wc -l)
+        echo "before=$before" >> "$GITHUB_OUTPUT"
+        go test -run='^$' -fuzz='^${{ matrix.target }}$' -fuzztime="$FUZZTIME" -timeout=0 . 2>&1 | tee fuzz.log
+
+    - name: Summary
+      if: always()
+      run: |
+        after=$(find "${{ steps.corpus.outputs.dir }}" -type f | wc -l)
+        {
+          echo "### ${{ matrix.target }}"
+          echo "- fuzz time: $FUZZTIME, outcome: ${{ steps.fuzz.outcome }}"
+          echo "- corpus entries: ${{ steps.fuzz.outputs.before }} → $after"
+          echo '```'
+          grep -E '^fuzz: elapsed' fuzz.log | tail -1 || true
+          echo '```'
+        } >> "$GITHUB_STEP_SUMMARY"
+
+    - name: Report failing input
+      if: failure() && steps.fuzz.outcome == 'failure'
+      run: |
+        {
+          echo "**${{ matrix.target }} failed.** The failing input is in the \`fuzz-failure-${{ matrix.target }}\` artifact."
+          echo "Copy it into \`testdata/fuzz/${{ matrix.target }}/\` and reproduce with:"
+          echo '```'
+          echo "go test -run='^${{ matrix.target }}$' ."
+          echo '```'
+          echo '```'
+          grep -A20 -E -- '^--- FAIL' fuzz.log | head -40 || true
+          echo '```'
+        } >> "$GITHUB_STEP_SUMMARY"
+
+    - name: Upload failing input
+      if: failure() && steps.fuzz.outcome == 'failure'
+      uses: actions/upload-artifact@v4
+      with:
+        name: fuzz-failure-${{ matrix.target }}
+        path: |
+          testdata/fuzz/${{ matrix.target }}/
+          fuzz.log
+        if-no-files-found: warn
+
+    # Save even after a failure so the corpus keeps growing; caches written on
+    # the default branch are readable by every PR.
+    - name: Save corpus
+      if: always() && github.event_name != 'pull_request'
+      uses: actions/cache/save@v4
+      with:
+        path: ${{ steps.corpus.outputs.dir }}
+        key: fuzz-corpus-${{ matrix.target }}-${{ github.run_id }}-${{ github.run_attempt }}
+
+  report:
+    needs: fuzz
+    if: failure() && github.event_name == 'schedule'
+    runs-on: ubuntu-latest
+    permissions:
+      issues: write
+    steps:
+    - name: Open or update the tracking issue
+      env:
+        GH_TOKEN: ${{ github.token }}
+        GH_REPO: ${{ github.repository }}
+        RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+      run: |
+        title="Nightly fuzzing found a failure"
+        body="The nightly fuzz run failed: $RUN_URL. The run summary names the failing target(s); each failing input is uploaded as an artifact."
+        number=$(gh issue list --state open --search "in:title \"$title\"" --json number --jq '.[0].number')
+        if [ -n "$number" ]; then
+          gh issue comment "$number" --body "$body"
+        else
+          gh issue create --title "$title" --body "$body"
+        fi

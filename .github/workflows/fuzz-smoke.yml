@@ -1,11 +1,25 @@
 on: [push, pull_request]
 name: Fuzz smoke
+permissions:
+  contents: read
 jobs:
+  targets:
+    runs-on: ubuntu-latest
+    outputs:
+      matrix: ${{ steps.list.outputs.matrix }}
+    steps:
+    - uses: actions/checkout@v5
+    - id: list
+      run: echo "matrix=$(.github/scripts/fuzz-targets.sh --json)" >> "$GITHUB_OUTPUT"
+    - name: Every fuzz target is registered with ClusterFuzzLite
+      run: .github/scripts/fuzz-targets.sh --check-cflite
+
   fuzz:
+    needs: targets
     strategy:
       fail-fast: false
       matrix:
-        target: [FuzzDecode, FuzzLogReader, FuzzRecordEncodeDecode, FuzzZigZagRoundTrip, FuzzDecodeInvariants, FuzzPercentileQueries, FuzzZigZagDecodeBytes, FuzzMergeMetamorphic, FuzzPackedDecodeHostile, FuzzPackedDifferential]
+        target: ${{ fromJSON(needs.targets.outputs.matrix) }}
     runs-on: ubuntu-latest
     steps:
     - name: Checkout code
@@ -15,9 +29,33 @@ jobs:
       uses: actions/setup-go@v6
       with:
         go-version-file: go.mod
+        cache: false
+
+    - name: Locate corpus
+      id: corpus
+      run: |
+        dir="$(go env GOCACHE)/fuzz/$(go list -m)/${{ matrix.target }}"
+        mkdir -p "$dir"
+        echo "dir=$dir" >> "$GITHUB_OUTPUT"
+
+    # Start from the corpus the nightly run has built up (read-only here).
+    - name: Restore corpus
+      uses: actions/cache/restore@v4
+      with:
+        path: ${{ steps.corpus.outputs.dir }}
+        key: fuzz-corpus-${{ matrix.target }}-${{ github.run_id }}
+        restore-keys: fuzz-corpus-${{ matrix.target }}-
 
     - name: Fuzz ${{ matrix.target }}
       run: go test -run='^$' -fuzz='^${{ matrix.target }}$' -fuzztime=30s ./...
+
+    - name: Upload failing input
+      if: failure()
+      uses: actions/upload-artifact@v4
+      with:
+        name: fuzz-failure-${{ matrix.target }}
+        path: testdata/fuzz/${{ matrix.target }}/
+        if-no-files-found: ignore
 
   race:
     runs-on: ubuntu-latest
