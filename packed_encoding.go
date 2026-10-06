@@ -119,23 +119,26 @@ func decodePackedCompressed(compressed []byte) (rp *PackedHistogram, err error) 
 	}
 	defer func() {
 		// Defensive: a zlib reader Close only surfaces an error the successful
-		// io.ReadAll below did not already return, so this assignment is effectively
+		// reads below did not already return, so this assignment is effectively
 		// unreachable in practice. Kept for correctness.
 		if cerr := z.Close(); cerr != nil && err == nil {
 			err = cerr
 		}
 	}()
-	dec, err := io.ReadAll(z)
-	if err != nil {
-		return nil, err
+	// Read the fixed header first so the payload can be bounded by the geometry
+	// before it is inflated: a tiny compressed stream must not be able to force
+	// an arbitrarily large allocation.
+	hdr := make([]byte, ENCODING_HEADER_SIZE)
+	if n, rerr := io.ReadFull(z, hdr); rerr != nil {
+		if rerr != io.EOF && rerr != io.ErrUnexpectedEOF {
+			return nil, rerr
+		}
+		return nil, fmt.Errorf("decompressed histogram truncated: got %d bytes, need at least %d", n, ENCODING_HEADER_SIZE)
 	}
-	if len(dec) < ENCODING_HEADER_SIZE {
-		return nil, fmt.Errorf("decompressed histogram truncated: got %d bytes, need at least %d", len(dec), ENCODING_HEADER_SIZE)
-	}
-	cookie, payloadLen, normOff, sig, low, high, _, err := decodeDeCompressedHeaderFormat(dec[0:ENCODING_HEADER_SIZE])
+	cookie, payloadLen, normOff, sig, low, high, _, err := decodeDeCompressedHeaderFormat(hdr)
 	if err != nil {
 		// Defensive: decodeDeCompressedHeaderFormat reads exactly the 40 bytes
-		// guaranteed present by the length check above, so binary.Read cannot
+		// guaranteed present by the ReadFull above, so binary.Read cannot
 		// fail here. Kept for correctness / parity with the dense decoder.
 		return nil, err
 	}
@@ -145,12 +148,25 @@ func decodePackedCompressed(compressed []byte) (rp *PackedHistogram, err error) 
 	if normOff != 0 {
 		return nil, fmt.Errorf("packed decode: non-zero normalizingIndexOffset %d is not supported", normOff)
 	}
-	actual := int32(len(dec)) - int32(ENCODING_HEADER_SIZE)
-	if payloadLen != actual {
-		return nil, fmt.Errorf("PayloadLength should have the same size of the actual payload. got %d want %d", actual, payloadLen)
+	if payloadLen < 0 {
+		return nil, fmt.Errorf("negative PayloadLength: %d", payloadLen)
 	}
 	rp = NewPacked(low, high, int(sig))
-	if err = fillSparseFromPayload(dec[ENCODING_HEADER_SIZE:], rp); err != nil {
+	// A valid payload holds at most one zig-zag LEB128 varint (<= 9 bytes)
+	// per counts index.
+	if maxPayload := int64(rp.geom.countsLen) * 9; int64(payloadLen) > maxPayload {
+		return nil, fmt.Errorf("PayloadLength %d exceeds the maximum %d for countsLen %d", payloadLen, maxPayload, rp.geom.countsLen)
+	}
+	// Read one byte past payloadLen so trailing data is detected without
+	// inflating it; reaching EOF here also verifies the zlib checksum.
+	dec, err := io.ReadAll(io.LimitReader(z, int64(payloadLen)+1))
+	if err != nil {
+		return nil, err
+	}
+	if int64(len(dec)) != int64(payloadLen) {
+		return nil, fmt.Errorf("PayloadLength should have the same size of the actual payload. got %d want %d", len(dec), payloadLen)
+	}
+	if err = fillSparseFromPayload(dec, rp); err != nil {
 		return nil, err
 	}
 	return rp, nil

@@ -5,7 +5,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        target: [FuzzDecode, FuzzLogReader, FuzzRecordEncodeDecode, FuzzZigZagRoundTrip, FuzzDecodeInvariants, FuzzPercentileQueries, FuzzZigZagDecodeBytes, FuzzMergeMetamorphic]
+        target: [FuzzDecode, FuzzLogReader, FuzzRecordEncodeDecode, FuzzZigZagRoundTrip, FuzzDecodeInvariants, FuzzPercentileQueries, FuzzZigZagDecodeBytes, FuzzMergeMetamorphic, FuzzPackedDecodeHostile, FuzzPackedDifferential]
     runs-on: ubuntu-latest
     steps:
     - name: Checkout code
