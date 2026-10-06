@@ -101,9 +101,7 @@ func (p *PackedHistogram) widenToFit(need int64) {
 	if nw == p.width {
 		return
 	}
-	ow := p.width
 	nb := make([]byte, int(p.size)*int(nw))
-	// widen high slot first is unnecessary here since dst is a fresh buffer.
 	for i := int32(0); i < p.size; i++ {
 		v := p.slotGet(i) // reads at old width from p.cnt
 		off := int(i) * int(nw)
@@ -116,7 +114,6 @@ func (p *PackedHistogram) widenToFit(need int64) {
 			binary.LittleEndian.PutUint64(nb[off:], uint64(v))
 		}
 	}
-	_ = ow
 	p.cnt = nb
 	p.width = nw
 }
