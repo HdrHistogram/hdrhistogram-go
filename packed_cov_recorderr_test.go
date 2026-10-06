@@ -39,7 +39,7 @@ func cov_recorderr_newDense() *Histogram {
 // public CountAtValue), returning 0 for out-of-range values to mirror the packed
 // CountAtValue contract.
 func cov_recorderr_denseCount(d *Histogram, v int64) int64 {
-	if v < 0 || v > d.highestTrackableValue {
+	if v < 0 {
 		return 0
 	}
 	idx := d.countsIndexFor(v)

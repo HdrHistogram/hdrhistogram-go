@@ -170,7 +170,8 @@ func fillSparseFromPayload(payload []byte, p *PackedHistogram) error {
 		pos += n
 		if count < 0 {
 			zeros := -count
-			if zeros > countsLen-dstIndex {
+			// zeros <= 0 only when count == MinInt64, whose negation overflows.
+			if zeros <= 0 || zeros > countsLen-dstIndex {
 				return fmt.Errorf("corrupt histogram payload: zero-run of %d at index %d overflows counts length %d", zeros, dstIndex, countsLen)
 			}
 			dstIndex += zeros

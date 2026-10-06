@@ -13,6 +13,11 @@ package hdrhistogram
 // order; cnt is a byte blob holding one count per populated bucket at a uniform
 // adaptive width (1/2/4/8 bytes) that widens on overflow.
 //
+// COST MODEL: recording into an already-populated bucket is a binary search;
+// populating a new bucket also shifts the tail of idx/cnt, so it is O(populated).
+// Filling many distinct buckets is therefore quadratic in the populated count;
+// prefer the dense Histogram when most buckets will be populated.
+//
 // THREAD SAFETY: single-goroutine, like the dense Histogram. The read-only query
 // methods are safe to call concurrently only when no goroutine is recording.
 
@@ -21,6 +26,7 @@ import (
 	"fmt"
 	"math"
 	"sort"
+	"unsafe"
 )
 
 // PackedHistogram is the sparse variant. Create with NewPacked.
@@ -33,13 +39,11 @@ type PackedHistogram struct {
 	totalCount int64
 }
 
-// NewPacked creates a sparse histogram with the same arguments as New. The
-// geometry oracle is built once and holds no counts array.
+// NewPacked creates a sparse histogram with the same arguments as New. Its
+// per-instance geometry oracle never allocates a counts array.
 func NewPacked(lowestDiscernibleValue, highestTrackableValue int64, numberOfSignificantValueDigits int) *PackedHistogram {
-	g := New(lowestDiscernibleValue, highestTrackableValue, numberOfSignificantValueDigits)
-	g.counts = nil // geometry only: the dense value<->index helpers never read counts
 	return &PackedHistogram{
-		geom:  g,
+		geom:  newGeometry(lowestDiscernibleValue, highestTrackableValue, numberOfSignificantValueDigits),
 		width: 1,
 	}
 }
@@ -253,12 +257,18 @@ func (p *PackedHistogram) Min() int64 {
 }
 
 // CountAtValue returns the recorded count at v's bucket (0 if out of range).
+// The range is the same one RecordValues accepts, which extends past
+// highestTrackableValue up to the top of the last bucket.
 func (p *PackedHistogram) CountAtValue(v int64) int64 {
 	g := p.geom
-	if v < 0 || v > g.highestTrackableValue {
+	if v < 0 {
 		return 0
 	}
-	ci := int32(g.countsIndexFor(v))
+	idx := g.countsIndexFor(v)
+	if idx < 0 || idx >= int(g.countsLen) {
+		return 0
+	}
+	ci := int32(idx)
 	pos := p.lowerBound(ci)
 	if pos < p.size && p.idx[pos] == ci {
 		return p.slotGet(pos)
@@ -542,8 +552,11 @@ func (p *PackedHistogram) ValueAtPercentilesSlice(percentiles []float64) []int64
 	return out
 }
 
-// GetMemorySize returns the bytes held by the sparse backing (idx + cnt
-// capacities); the shared geometry oracle is excluded.
+// GetMemorySize returns the approximate bytes held by this histogram: the
+// struct, its per-instance geometry oracle, and the idx + cnt capacities.
 func (p *PackedHistogram) GetMemorySize() int {
-	return cap(p.idx)*4 + cap(p.cnt)
+	return packedFixedSize + cap(p.idx)*4 + cap(p.cnt)
 }
+
+// packedFixedSize is the per-instance overhead independent of population.
+const packedFixedSize = int(unsafe.Sizeof(PackedHistogram{})) + int(unsafe.Sizeof(Histogram{}))

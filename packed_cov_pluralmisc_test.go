@@ -211,23 +211,23 @@ func TestCov_pluralmisc_PopulatedAndCountWidth(t *testing.T) {
 	}
 }
 
-// TestCov_pluralmisc_GetMemorySize checks GetMemorySize is 0 on a fresh
-// histogram (no backing allocated) and strictly > 0 once at least one bucket is
+// TestCov_pluralmisc_GetMemorySize checks GetMemorySize is the fixed overhead on
+// a fresh histogram (no backing allocated) and grows once at least one bucket is
 // populated, and that it is consistent with the idx/cnt capacities.
 func TestCov_pluralmisc_GetMemorySize(t *testing.T) {
 	p := NewPacked(1, 100000, 3)
-	if got := p.GetMemorySize(); got != 0 {
-		t.Fatalf("fresh GetMemorySize=%d want 0", got)
+	if got := p.GetMemorySize(); got != packedFixedSize {
+		t.Fatalf("fresh GetMemorySize=%d want %d", got, packedFixedSize)
 	}
 	if err := p.RecordValue(42); err != nil {
 		t.Fatal(err)
 	}
 	got := p.GetMemorySize()
-	if got <= 0 {
-		t.Fatalf("populated GetMemorySize=%d want >0", got)
+	if got <= packedFixedSize {
+		t.Fatalf("populated GetMemorySize=%d want >%d", got, packedFixedSize)
 	}
-	// Must equal cap(idx)*4 + cap(cnt) exactly (white-box, package-internal).
-	want := cap(p.idx)*4 + cap(p.cnt)
+	// Must equal fixed + cap(idx)*4 + cap(cnt) exactly (white-box, package-internal).
+	want := packedFixedSize + cap(p.idx)*4 + cap(p.cnt)
 	if got != want {
 		t.Fatalf("GetMemorySize=%d want cap-derived %d", got, want)
 	}
@@ -244,7 +244,7 @@ func TestCov_pluralmisc_GetMemorySize(t *testing.T) {
 }
 
 // TestCov_pluralmisc_CountAtValueOutOfRange covers both out-of-range guards of
-// CountAtValue: a negative value and a value above highestTrackableValue both
+// CountAtValue: a negative value and a value beyond the last bucket both
 // return 0 without touching the backing store.
 func TestCov_pluralmisc_CountAtValueOutOfRange(t *testing.T) {
 	high := int64(100000)
@@ -262,7 +262,7 @@ func TestCov_pluralmisc_CountAtValueOutOfRange(t *testing.T) {
 	if got := p.CountAtValue(math.MinInt64); got != 0 {
 		t.Fatalf("CountAtValue(MinInt64)=%d want 0", got)
 	}
-	// Above highestTrackableValue.
+	// Above highestTrackableValue (unrecorded) and beyond the last bucket.
 	if got := p.CountAtValue(high + 1); got != 0 {
 		t.Fatalf("CountAtValue(high+1)=%d want 0", got)
 	}
