@@ -117,3 +117,26 @@ func TestPackedDecodeBoundsDecompression(t *testing.T) {
 		}
 	})
 }
+
+// ValueAtPercentilesSlice must agree with ValueAtPercentile when a target lands
+// exactly on the edge of an 8-bucket scan block.
+func TestPackedPercentilesSliceBlockEdge(t *testing.T) {
+	for _, n := range []int64{8, 9, 16} {
+		p := NewPacked(1, 1000, 1)
+		for v := int64(1); v <= n; v++ {
+			if err := p.RecordValue(v); err != nil {
+				t.Fatal(err)
+			}
+		}
+		pcts := []float64{100, 50, 0, 87.5, 100 * 7 / float64(n), 99.9}
+		got := p.ValueAtPercentilesSlice(pcts)
+		for i, pct := range pcts {
+			if want := p.ValueAtPercentile(pct); got[i] != want {
+				t.Fatalf("n=%d p%v: slice %d, singular %d", n, pct, got[i], want)
+			}
+		}
+		if got[0] != n {
+			t.Fatalf("n=%d: p100 = %d, want %d", n, got[0], n)
+		}
+	}
+}

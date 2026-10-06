@@ -9,6 +9,7 @@ import (
 	"compress/zlib"
 	"encoding/base64"
 	"encoding/binary"
+	"fmt"
 	"math"
 	"testing"
 )
@@ -117,6 +118,54 @@ func packedSameBuckets(a, b *PackedHistogram) bool {
 	return true
 }
 
+// packedRefPercentile is an independent reference for ValueAtPercentile: a
+// plain saturating walk over the populated buckets, without the blocked scan.
+func packedRefPercentile(p *PackedHistogram, pct float64) int64 {
+	if p.totalCount == 0 {
+		return 0
+	}
+	if pct > 100 {
+		pct = 100
+	} else if pct < 0 {
+		pct = 0
+	}
+	target := p.countAtPercentile(pct)
+	var running, vfi int64
+	for i := int32(0); i < p.size; i++ {
+		c := p.slotGet(i)
+		if c > math.MaxInt64-running {
+			running = math.MaxInt64
+		} else {
+			running += c
+		}
+		if running >= target {
+			vfi = p.geom.valueFromFlatIndex(p.idx[i])
+			break
+		}
+	}
+	if pct == 0 {
+		return p.geom.lowestEquivalentValue(vfi)
+	}
+	return p.highestEquivalent(vfi)
+}
+
+// packedCheckPercentiles checks ValueAtPercentile and ValueAtPercentilesSlice
+// against each other and against packedRefPercentile, returning a description
+// of the first mismatch, or "".
+func packedCheckPercentiles(p *PackedHistogram, pcts []float64) string {
+	slice := p.ValueAtPercentilesSlice(pcts)
+	for i, pct := range pcts {
+		ref := packedRefPercentile(p, pct)
+		if got := p.ValueAtPercentile(pct); got != ref {
+			return fmt.Sprintf("ValueAtPercentile(%v) = %d, reference %d", pct, got, ref)
+		}
+		if slice[i] != ref {
+			return fmt.Sprintf("ValueAtPercentilesSlice[%d] (p%v) = %d, reference %d", i, pct, slice[i], ref)
+		}
+	}
+	return ""
+}
+
 // FuzzPackedDecodeHostile: DecodePacked must never panic on an arbitrary
 // payload or inconsistent header, and any histogram it accepts must be
 // structurally sound and survive re-encode + re-decode unchanged. The fuzzer
@@ -135,7 +184,9 @@ func FuzzPackedDecodeHostile(f *testing.F) {
 	f.Add(uint8(5), int8(0), uint8(0), []byte{0xfd, 0x0e, 0x02})                                           // zero-run of 959, then the top bucket (wraps without saturation)
 	f.Add(uint8(0), int8(3), uint8(1), []byte{0x14, 0x14})                                                 // payloadLen too long
 	f.Add(uint8(0), int8(-1), uint8(1), []byte{0x14, 0x14})                                                // payloadLen too short
-	f.Add(uint8(0), int8(2), uint8(2), []byte{0x14})                                                       // rotated histogram
+	f.Add(uint8(0), int8(2), uint8(2), []byte{0x14})
+	f.Add(uint8(0), int8(0), uint8(0), []byte{0xfe, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0x02}) // MaxInt64 then 1: saturated total
+	f.Add(uint8(0), int8(0), uint8(0), []byte{0x02, 0xfe, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff}) // 1 then MaxInt64                                                       // rotated histogram
 
 	f.Fuzz(func(t *testing.T, geom uint8, lenDelta int8, flags uint8, payload []byte) {
 		g := packedDecodeGeoms[int(geom)%len(packedDecodeGeoms)]
@@ -174,9 +225,9 @@ func FuzzPackedDecodeHostile(f *testing.F) {
 				t.Fatalf("p100 %d != Max %d", hp.ValueAtPercentile(100), hp.Max())
 			}
 		}
-		_ = hp.ValueAtPercentile(0)
-		_ = hp.ValueAtPercentile(50)
-		_ = hp.ValueAtPercentilesSlice([]float64{0, 99, 99.9, 100})
+		if msg := packedCheckPercentiles(hp, []float64{100, 0, 50, 99, 99.9, -1, 50, 150}); msg != "" {
+			t.Fatal(msg)
+		}
 		re, err := hp.Encode()
 		if err != nil {
 			t.Fatalf("re-encode of a decoded histogram failed: %v", err)
@@ -231,7 +282,9 @@ func packedFuzzValue(raw uint64, g packedFuzzGeom, topEnd int64) int64 {
 // record errors, per-bucket counts, totals, min/max, percentiles, byte-identical
 // V2 encodes, and continued recording after decoding each side's stream into
 // the other type. Each operation is 17 bytes: an opcode, a value word and an
-// argument word.
+// argument word. Opcodes: 0 record, 1 record a small count, 2 record a large
+// or width-edge count, 3 query, 4 encode and cross-decode, 5 min/max, 6 record
+// a run of distinct buckets.
 func FuzzPackedDifferential(f *testing.F) {
 	op := func(code byte, v, arg uint64) []byte {
 		b := []byte{code}
@@ -248,15 +301,65 @@ func FuzzPackedDifferential(f *testing.F) {
 	f.Add(uint8(0), seed)
 	f.Add(uint8(2), seed)
 	f.Add(uint8(5), seed)
+	// Exactly 8 and 16 populated buckets, so percentile targets fall on the
+	// edges of the 8-bucket scan blocks.
+	for _, k := range []uint64{8, 16} {
+		var s []byte
+		for v := uint64(1); v <= k; v++ {
+			s = append(s, op(0, v<<3, 0)...)
+		}
+		s = append(s, op(3, 0, 100000)...)
+		f.Add(uint8(1), s)
+	}
+	// Bucket counts landing exactly on each count-width edge.
+	for _, edge := range []uint64{0xFF, 0xFFFF, 0xFFFFFFFF} {
+		var s []byte
+		s = append(s, op(2, 1000<<3, edge-2)...) // count edge-1
+		s = append(s, op(0, 1000<<3, 0)...)      // count edge
+		s = append(s, op(0, 1000<<3, 0)...)      // count edge+1
+		s = append(s, op(3, 1000<<3, 50000)...)
+		f.Add(uint8(0), s)
+	}
+	f.Add(uint8(4), op(6, 7<<3, 39|(37<<8))) // bulk: 40 buckets with stride 38
 
 	f.Fuzz(func(t *testing.T, geom uint8, ops []byte) {
 		g := packedDiffGeoms[int(geom)%len(packedDiffGeoms)]
 		d := New(g.low, g.high, int(g.sig))
 		p := NewPacked(g.low, g.high, int(g.sig))
-		topEnd := p.highestEquivalent(g.high)
+		// Highest value the counts array can hold, which can be well above high.
+		topEnd := p.highestEquivalent(p.geom.valueFromFlatIndex(p.geom.countsLen - 1))
+		record := func(v, n int64) {
+			if n > math.MaxInt64-d.TotalCount() {
+				// Intentional difference: packed rejects a total overflow, dense wraps.
+				if err := p.RecordValues(v, n); err == nil {
+					t.Fatalf("packed accepted RecordValues(%d, %d) overflowing total %d", v, n, p.TotalCount())
+				}
+				return
+			}
+			derr := d.RecordValues(v, n)
+			perr := p.RecordValues(v, n)
+			if (derr == nil) != (perr == nil) {
+				t.Fatalf("RecordValues(%d, %d): dense err %v, packed err %v", v, n, derr, perr)
+			}
+		}
+		checkPercentiles := func(pcts []float64) {
+			if msg := packedCheckPercentiles(p, pcts); msg != "" {
+				t.Fatal(msg)
+			}
+			if d.TotalCount() <= 1<<52 {
+				for _, pct := range pcts {
+					if dv, pv := d.ValueAtPercentile(pct), p.ValueAtPercentile(pct); dv != pv {
+						t.Fatalf("p%v: dense %d, packed %d", pct, dv, pv)
+					}
+				}
+			}
+		}
 
-		for len(ops) >= 17 {
-			code := ops[0] % 6
+		// Bound the work per input so CI fuzzing time is spent on many inputs.
+		const maxOps, maxRoundTrips = 256, 4
+		roundTrips := 0
+		for nops := 0; len(ops) >= 17 && nops < maxOps; nops++ {
+			code := ops[0] % 7
 			v := packedFuzzValue(binary.BigEndian.Uint64(ops[1:]), g, topEnd)
 			arg := binary.BigEndian.Uint64(ops[9:])
 			ops = ops[17:]
@@ -269,19 +372,16 @@ func FuzzPackedDifferential(f *testing.F) {
 					n = int64(arg%1000) + 1
 				case 2:
 					n = int64(arg%(1<<40)) + 1 // large enough to widen counts to 8 bytes
-				}
-				if n > math.MaxInt64-d.TotalCount() {
-					// Intentional difference: packed rejects a total overflow, dense wraps.
-					if err := p.RecordValues(v, n); err == nil {
-						t.Fatalf("packed accepted RecordValues(%d, %d) overflowing total %d", v, n, p.TotalCount())
+					if arg>>40&1 == 1 && v >= 0 {
+						// Land the bucket on a count-width edge: max-1, max or max+1.
+						w := [3]uint8{1, 2, 4}[(arg>>41)%3]
+						n = packedWidthMax(w) - p.CountAtValue(v) + int64(arg%3) - 1
+						if n < 1 {
+							n = 1
+						}
 					}
-					continue
 				}
-				derr := d.RecordValues(v, n)
-				perr := p.RecordValues(v, n)
-				if (derr == nil) != (perr == nil) {
-					t.Fatalf("RecordValues(%d, %d): dense err %v, packed err %v", v, n, derr, perr)
-				}
+				record(v, n)
 			case 3:
 				if v >= 0 {
 					want := int64(0)
@@ -293,12 +393,11 @@ func FuzzPackedDifferential(f *testing.F) {
 					}
 				}
 				pct := float64(arg%100001) / 1000
-				if d.TotalCount() <= 1<<52 {
-					if dv, pv := d.ValueAtPercentile(pct), p.ValueAtPercentile(pct); dv != pv {
-						t.Fatalf("p%v: dense %d, packed %d", pct, dv, pv)
-					}
-				}
+				checkPercentiles([]float64{pct, 0, 100, -1, pct, 150})
 			case 4:
+				if roundTrips++; roundTrips > maxRoundTrips {
+					continue
+				}
 				de, err := d.Encode(V2CompressedEncodingCookieBase)
 				if err != nil {
 					t.Fatal(err)
@@ -320,6 +419,12 @@ func FuzzPackedDifferential(f *testing.F) {
 			case 5:
 				if d.Min() != p.Min() || d.Max() != p.Max() {
 					t.Fatalf("min/max: dense (%d,%d), packed (%d,%d)", d.Min(), d.Max(), p.Min(), p.Max())
+				}
+			case 6: // bulk: up to 40 distinct buckets in one op
+				k := int64(arg%40) + 1
+				stride := int64((arg>>8)%1000) + 1
+				for i := int64(0); i < k && v <= math.MaxInt64-i*stride; i++ {
+					record(v+i*stride, 1)
 				}
 			}
 			if d.TotalCount() != p.TotalCount() {
@@ -344,12 +449,6 @@ func FuzzPackedDifferential(f *testing.F) {
 		if d.Min() != p.Min() || d.Max() != p.Max() {
 			t.Fatalf("min/max: dense (%d,%d), packed (%d,%d)", d.Min(), d.Max(), p.Min(), p.Max())
 		}
-		if d.TotalCount() <= 1<<52 {
-			for _, pct := range []float64{0, 25, 50, 90, 99, 99.9, 100} {
-				if dv, pv := d.ValueAtPercentile(pct), p.ValueAtPercentile(pct); dv != pv {
-					t.Fatalf("p%v: dense %d, packed %d", pct, dv, pv)
-				}
-			}
-		}
+		checkPercentiles([]float64{100, 0, 25, 50, 90, 99, 99.9, 50})
 	})
 }
