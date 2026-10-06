@@ -264,9 +264,10 @@ func FuzzPackedDifferential(f *testing.F) {
 			switch code {
 			case 0, 1, 2:
 				n := int64(1)
-				if code == 1 {
+				switch code {
+				case 1:
 					n = int64(arg%1000) + 1
-				} else if code == 2 {
+				case 2:
 					n = int64(arg%(1<<40)) + 1 // large enough to widen counts to 8 bytes
 				}
 				if n > math.MaxInt64-d.TotalCount() {
