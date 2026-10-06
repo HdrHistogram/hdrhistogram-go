@@ -1,0 +1,32 @@
+name: ClusterFuzzLite batch fuzzing
+# Nightly libFuzzer (AddressSanitizer) run over every target registered in
+# .clusterfuzzlite/build.sh. With no storage repo, the corpus is kept as a
+# workflow artifact, which the PR "code-change" job also starts from.
+on:
+  schedule:
+    - cron: '43 3 * * *'
+  workflow_dispatch:
+permissions: read-all
+jobs:
+  BatchFuzzing:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    strategy:
+      fail-fast: false
+      matrix:
+        sanitizer: [address]
+    steps:
+    - name: Build Fuzzers (${{ matrix.sanitizer }})
+      id: build
+      uses: google/clusterfuzzlite/actions/build_fuzzers@v1
+      with:
+        language: go
+        sanitizer: ${{ matrix.sanitizer }}
+    - name: Run Fuzzers (${{ matrix.sanitizer }})
+      id: run
+      uses: google/clusterfuzzlite/actions/run_fuzzers@v1
+      with:
+        github-token: ${{ secrets.GITHUB_TOKEN }}
+        fuzz-seconds: 3600
+        mode: 'batch'
+        sanitizer: ${{ matrix.sanitizer }}
