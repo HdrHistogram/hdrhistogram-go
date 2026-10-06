@@ -1,10 +1,6 @@
 package hdrhistogram
 
 import (
-	"bytes"
-	"compress/zlib"
-	"encoding/base64"
-	"encoding/binary"
 	"runtime"
 	"strings"
 	"testing"
@@ -58,26 +54,7 @@ func wrapV2Payload(t testing.TB, payload []byte) []byte {
 // payloadLen header field that may disagree with len(payload).
 func wrapV2PayloadGeom(t testing.TB, low, high int64, sig, payloadLen int32, payload []byte) []byte {
 	t.Helper()
-	hdr := make([]byte, ENCODING_HEADER_SIZE)
-	binary.BigEndian.PutUint32(hdr[0:], uint32(V2EncodingCookieBase|0x10))
-	binary.BigEndian.PutUint32(hdr[4:], uint32(payloadLen))
-	binary.BigEndian.PutUint32(hdr[8:], 0)
-	binary.BigEndian.PutUint32(hdr[12:], uint32(sig))
-	binary.BigEndian.PutUint64(hdr[16:], uint64(low))
-	binary.BigEndian.PutUint64(hdr[24:], uint64(high))
-	binary.BigEndian.PutUint64(hdr[32:], 0x3ff0000000000000) // 1.0
-	var z bytes.Buffer
-	w := zlib.NewWriter(&z)
-	_, _ = w.Write(hdr)
-	_, _ = w.Write(payload)
-	_ = w.Close()
-	out := make([]byte, 8, 8+z.Len())
-	binary.BigEndian.PutUint32(out[0:], uint32(V2CompressedEncodingCookieBase|0x10))
-	binary.BigEndian.PutUint32(out[4:], uint32(z.Len()))
-	out = append(out, z.Bytes()...)
-	enc := make([]byte, base64.StdEncoding.EncodedLen(len(out)))
-	base64.StdEncoding.Encode(enc, out)
-	return enc
+	return buildPackedV2Stream(low, high, sig, payloadLen, 0, 0, payload)
 }
 
 // A zero-run of MinInt64 (whose negation overflows) must be rejected rather

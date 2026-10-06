@@ -1,54 +1,182 @@
 package hdrhistogram
 
+// Every helper the packed fuzzers use lives in this file and takes no
+// *testing.T: the ClusterFuzzLite build (go-118-fuzz-build) compiles only the
+// fuzz target's own file, with a shimmed testing package.
+
 import (
 	"bytes"
+	"compress/zlib"
+	"encoding/base64"
 	"encoding/binary"
+	"math"
 	"testing"
 )
 
-// packedFuzzGeoms are the geometries the decode fuzzer picks from. They are kept
-// to valid configurations so the fuzzer exercises the payload decoder rather
-// than header validation.
-var packedFuzzGeoms = []struct {
+// buildPackedV2Stream builds a base64 V2 compressed stream around a raw zig-zag
+// payload. payloadLen, normOff and cookieXor let callers write header fields
+// that disagree with the payload.
+func buildPackedV2Stream(low, high int64, sig, payloadLen, normOff int32, cookieXor uint32, payload []byte) []byte {
+	hdr := make([]byte, ENCODING_HEADER_SIZE)
+	binary.BigEndian.PutUint32(hdr[0:], uint32(V2EncodingCookieBase|0x10)^cookieXor)
+	binary.BigEndian.PutUint32(hdr[4:], uint32(payloadLen))
+	binary.BigEndian.PutUint32(hdr[8:], uint32(normOff))
+	binary.BigEndian.PutUint32(hdr[12:], uint32(sig))
+	binary.BigEndian.PutUint64(hdr[16:], uint64(low))
+	binary.BigEndian.PutUint64(hdr[24:], uint64(high))
+	binary.BigEndian.PutUint64(hdr[32:], math.Float64bits(1.0))
+	var z bytes.Buffer
+	w := zlib.NewWriter(&z)
+	_, _ = w.Write(hdr)
+	_, _ = w.Write(payload)
+	_ = w.Close()
+	out := make([]byte, 8, 8+z.Len())
+	binary.BigEndian.PutUint32(out[0:], uint32(V2CompressedEncodingCookieBase|0x10))
+	binary.BigEndian.PutUint32(out[4:], uint32(z.Len()))
+	out = append(out, z.Bytes()...)
+	enc := make([]byte, base64.StdEncoding.EncodedLen(len(out)))
+	base64.StdEncoding.Encode(enc, out)
+	return enc
+}
+
+// packedFuzzGeom is a histogram geometry the fuzzers can select by index.
+type packedFuzzGeom struct {
 	low, high int64
 	sig       int32
-}{
+}
+
+// packedDecodeGeoms are valid geometries for the decode fuzzer. The MaxInt64
+// entries make the top bucket's highest-equivalent value saturate.
+var packedDecodeGeoms = []packedFuzzGeom{
 	{1, 3600000000, 3},
 	{1, 1000, 1},
 	{1, 1000000, 2},
 	{1000, 1 << 40, 4},
 	{1, 1 << 62, 5},
+	{1, math.MaxInt64, 1},
+	{1 << 20, math.MaxInt64, 2},
+}
+
+// packedDiffGeoms are kept small (countsLen of a few thousand at most) so the
+// differential fuzzer can compare every bucket after each run cheaply.
+var packedDiffGeoms = []packedFuzzGeom{
+	{1, 1000000, 2},
+	{1, 1000, 1},
+	{1, math.MaxInt64, 1},
+	{1 << 20, math.MaxInt64, 1},
+	{7, 123456789, 2},
+	{1, 2, 1},
+}
+
+// packedCheckState verifies the structural invariants of a packed histogram
+// and returns a description of the first violation, or "".
+func packedCheckState(p *PackedHistogram) string {
+	if int(p.size) != len(p.idx) || len(p.cnt) != int(p.size)*int(p.width) {
+		return "size/len mismatch"
+	}
+	var sum int64
+	saturated := false
+	for i := int32(0); i < p.size; i++ {
+		if p.idx[i] < 0 || p.idx[i] >= p.geom.countsLen {
+			return "index outside countsLen"
+		}
+		if i > 0 && p.idx[i] <= p.idx[i-1] {
+			return "indices not strictly ascending"
+		}
+		c := p.slotGet(i)
+		if c <= 0 {
+			return "non-positive stored count"
+		}
+		if c > math.MaxInt64-sum {
+			saturated = true
+		} else {
+			sum += c
+		}
+	}
+	if saturated {
+		if p.totalCount != math.MaxInt64 {
+			return "bucket sum overflows but total is not saturated"
+		}
+	} else if sum != p.totalCount {
+		return "bucket sum != totalCount"
+	}
+	return ""
+}
+
+// packedSameBuckets reports whether two packed histograms hold the same
+// populated buckets and counts.
+func packedSameBuckets(a, b *PackedHistogram) bool {
+	if a.size != b.size {
+		return false
+	}
+	for i := int32(0); i < a.size; i++ {
+		if a.idx[i] != b.idx[i] || a.slotGet(i) != b.slotGet(i) {
+			return false
+		}
+	}
+	return true
 }
 
 // FuzzPackedDecodeHostile: DecodePacked must never panic on an arbitrary
-// payload, and any successfully-decoded histogram must survive query +
-// re-encode + re-decode. The fuzzer mutates the raw zig-zag payload and the
-// test wraps it in a valid header, zlib and base64, so mutations reach
-// fillSparseFromPayload instead of failing at the outer layers.
+// payload or inconsistent header, and any histogram it accepts must be
+// structurally sound and survive re-encode + re-decode unchanged. The fuzzer
+// mutates the raw zig-zag payload plus selected header fields; the stream is
+// wrapped in valid zlib and base64 so mutations reach the decoder itself.
+//
+// flags: bit 0 offsets payloadLen by lenDelta, bit 1 writes lenDelta as the
+// normalizingIndexOffset, bit 2 flips low bits of the inner cookie.
 func FuzzPackedDecodeHostile(f *testing.F) {
-	f.Add(uint8(0), []byte{0x14, 0x14})                                                 // two counts of 10
-	f.Add(uint8(0), []byte{0x01, 0x14})                                                 // zero-run of 1, then a count
-	f.Add(uint8(1), []byte{0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0x0a}) // MinInt64 zero-run
-	f.Add(uint8(2), []byte{0xfe, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff})       // MaxInt64 count
-	f.Add(uint8(3), []byte{})                                                           // empty histogram
-	f.Add(uint8(4), []byte{0x81, 0x80, 0x01, 0x02})                                     // multi-byte zero-run
+	f.Add(uint8(0), int8(0), uint8(0), []byte{0x14, 0x14})                                                 // two counts of 10
+	f.Add(uint8(0), int8(0), uint8(0), []byte{0x01, 0x14})                                                 // zero-run of 1, then a count
+	f.Add(uint8(1), int8(0), uint8(0), []byte{0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0x0a}) // MinInt64 zero-run
+	f.Add(uint8(2), int8(0), uint8(0), []byte{0xfe, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff})       // MaxInt64 count
+	f.Add(uint8(3), int8(0), uint8(0), []byte{})                                                           // empty histogram
+	f.Add(uint8(4), int8(0), uint8(0), []byte{0x81, 0x80, 0x01, 0x02})                                     // multi-byte zero-run
+	f.Add(uint8(5), int8(0), uint8(0), []byte{0xfd, 0x0e, 0x02})                                           // zero-run of 959, then the top bucket (wraps without saturation)
+	f.Add(uint8(0), int8(3), uint8(1), []byte{0x14, 0x14})                                                 // payloadLen too long
+	f.Add(uint8(0), int8(-1), uint8(1), []byte{0x14, 0x14})                                                // payloadLen too short
+	f.Add(uint8(0), int8(2), uint8(2), []byte{0x14})                                                       // rotated histogram
 
-	f.Fuzz(func(t *testing.T, geom uint8, payload []byte) {
-		g := packedFuzzGeoms[int(geom)%len(packedFuzzGeoms)]
-		hp, err := DecodePacked(wrapV2PayloadGeom(t, g.low, g.high, g.sig, int32(len(payload)), payload))
+	f.Fuzz(func(t *testing.T, geom uint8, lenDelta int8, flags uint8, payload []byte) {
+		g := packedDecodeGeoms[int(geom)%len(packedDecodeGeoms)]
+		payloadLen := int32(len(payload))
+		var normOff int32
+		var cookieXor uint32
+		if flags&1 != 0 {
+			payloadLen += int32(lenDelta)
+		}
+		if flags&2 != 0 {
+			normOff = int32(lenDelta)
+		}
+		if flags&4 != 0 {
+			cookieXor = uint32(lenDelta) & 0x0f
+		}
+		hp, err := DecodePacked(buildPackedV2Stream(g.low, g.high, g.sig, payloadLen, normOff, cookieXor, payload))
 		if err != nil {
 			return
 		}
-		_ = hp.TotalCount()
-		_ = hp.Min()
-		_ = hp.Max()
+		if payloadLen != int32(len(payload)) || normOff != 0 || cookieXor != 0 {
+			t.Fatalf("accepted an inconsistent header: payloadLen %d (actual %d), normOff %d, cookieXor %#x",
+				payloadLen, len(payload), normOff, cookieXor)
+		}
+		if msg := packedCheckState(hp); msg != "" {
+			t.Fatalf("decoded state invalid: %s", msg)
+		}
+		saturated := hp.TotalCount() == math.MaxInt64
+		if hp.Populated() > 0 {
+			if hp.Max() < hp.Min() {
+				t.Fatalf("Max %d < Min %d", hp.Max(), hp.Min())
+			}
+			if hp.CountAtValue(hp.Max()) == 0 || hp.CountAtValue(hp.Min()) == 0 {
+				t.Fatalf("CountAtValue is 0 at Min %d or Max %d", hp.Min(), hp.Max())
+			}
+			if !saturated && hp.ValueAtPercentile(100) != hp.Max() {
+				t.Fatalf("p100 %d != Max %d", hp.ValueAtPercentile(100), hp.Max())
+			}
+		}
 		_ = hp.ValueAtPercentile(0)
 		_ = hp.ValueAtPercentile(50)
-		_ = hp.ValueAtPercentile(100)
 		_ = hp.ValueAtPercentilesSlice([]float64{0, 99, 99.9, 100})
-		if hp.Populated() > 0 && hp.CountAtValue(hp.Max()) == 0 {
-			t.Fatalf("CountAtValue(Max()=%d) == 0 on a populated histogram", hp.Max())
-		}
 		re, err := hp.Encode()
 		if err != nil {
 			t.Fatalf("re-encode of a decoded histogram failed: %v", err)
@@ -57,77 +185,170 @@ func FuzzPackedDecodeHostile(f *testing.F) {
 		if err != nil {
 			t.Fatalf("re-decode of our own stream failed: %v", err)
 		}
-		if hp2.TotalCount() != hp.TotalCount() {
-			t.Fatalf("total drifted across re-encode: %d != %d", hp2.TotalCount(), hp.TotalCount())
+		if hp2.TotalCount() != hp.TotalCount() || !packedSameBuckets(hp, hp2) {
+			t.Fatalf("state drifted across re-encode: total %d -> %d, populated %d -> %d",
+				hp.TotalCount(), hp2.TotalCount(), hp.Populated(), hp2.Populated())
 		}
 	})
 }
 
-// FuzzPackedDifferential: interpret the input as 16-byte (value, count) records,
-// apply the same stream to dense and packed, and assert parity at every
-// recorded bucket, the populated-bucket count, min/max/total, percentiles and a
-// byte-identical V2 encode. The geometry is small so each execution is cheap.
-func FuzzPackedDifferential(f *testing.F) {
-	const high = 1000000
-	seed := make([]byte, 0, 32)
-	seed = binary.BigEndian.AppendUint64(seed, 1000)
-	seed = binary.BigEndian.AppendUint64(seed, 1)
-	seed = binary.BigEndian.AppendUint64(seed, 6147)
-	seed = binary.BigEndian.AppendUint64(seed, 70000)
-	f.Add(seed)
+// packedFuzzValue maps a raw fuzz word to a value, biased towards the regions
+// where packed and dense are most likely to diverge.
+func packedFuzzValue(raw uint64, g packedFuzzGeom, topEnd int64) int64 {
+	x := raw >> 3
+	switch raw & 7 {
+	case 0:
+		return int64(x % uint64(g.high+1)) // anywhere in [0, high]
+	case 1:
+		return 0
+	case 2: // around a power of two
+		v := int64(1) << (x % 63)
+		switch (x >> 6) % 3 {
+		case 0:
+			return v - 1
+		case 2:
+			if v < math.MaxInt64 {
+				return v + 1
+			}
+		}
+		return v
+	case 3: // above highestTrackableValue but inside the last bucket
+		return g.high + int64(x%uint64(topEnd-g.high+1))
+	case 4: // just out of range, or negative when the top bucket ends at MaxInt64
+		if topEnd < math.MaxInt64-1000 {
+			return topEnd + 1 + int64(x%1000)
+		}
+		return -1 - int64(x%1000)
+	case 5: // the lowest discernible region
+		return int64(x % uint64(4*g.low))
+	default:
+		return int64(raw)
+	}
+}
 
-	f.Fuzz(func(t *testing.T, data []byte) {
-		d := New(1, high, 2)
-		p := NewPacked(1, high, 2)
-		touched := make(map[int]int64) // counts index -> one value recorded there
-		for i := 0; i+16 <= len(data); i += 16 {
-			v := int64(binary.BigEndian.Uint64(data[i:]))
-			c := int64(binary.BigEndian.Uint64(data[i+8:]))
-			if v < 0 {
-				v = -v
+// FuzzPackedDifferential runs a fuzzed sequence of operations against a dense
+// Histogram and a PackedHistogram in lockstep and requires identical results:
+// record errors, per-bucket counts, totals, min/max, percentiles, byte-identical
+// V2 encodes, and continued recording after decoding each side's stream into
+// the other type. Each operation is 17 bytes: an opcode, a value word and an
+// argument word.
+func FuzzPackedDifferential(f *testing.F) {
+	op := func(code byte, v, arg uint64) []byte {
+		b := []byte{code}
+		b = binary.BigEndian.AppendUint64(b, v)
+		return binary.BigEndian.AppendUint64(b, arg)
+	}
+	var seed []byte
+	seed = append(seed, op(0, 1000<<3, 0)...)      // record 1000
+	seed = append(seed, op(1, 6147<<3, 70000)...)  // record 6147 x 70001
+	seed = append(seed, op(2, 3, 1<<40)...)        // a large count in the top bucket
+	seed = append(seed, op(3, 1000<<3, 99900)...)  // query
+	seed = append(seed, op(4, 0, 0)...)            // round-trip through both decoders
+	seed = append(seed, op(0, (1<<12)<<3|2, 0)...) // around a power of two
+	f.Add(uint8(0), seed)
+	f.Add(uint8(2), seed)
+	f.Add(uint8(5), seed)
+
+	f.Fuzz(func(t *testing.T, geom uint8, ops []byte) {
+		g := packedDiffGeoms[int(geom)%len(packedDiffGeoms)]
+		d := New(g.low, g.high, int(g.sig))
+		p := NewPacked(g.low, g.high, int(g.sig))
+		topEnd := p.highestEquivalent(g.high)
+
+		for len(ops) >= 17 {
+			code := ops[0] % 6
+			v := packedFuzzValue(binary.BigEndian.Uint64(ops[1:]), g, topEnd)
+			arg := binary.BigEndian.Uint64(ops[9:])
+			ops = ops[17:]
+
+			switch code {
+			case 0, 1, 2:
+				n := int64(1)
+				if code == 1 {
+					n = int64(arg%1000) + 1
+				} else if code == 2 {
+					n = int64(arg%(1<<40)) + 1 // large enough to widen counts to 8 bytes
+				}
+				if n > math.MaxInt64-d.TotalCount() {
+					// Intentional difference: packed rejects a total overflow, dense wraps.
+					if err := p.RecordValues(v, n); err == nil {
+						t.Fatalf("packed accepted RecordValues(%d, %d) overflowing total %d", v, n, p.TotalCount())
+					}
+					continue
+				}
+				derr := d.RecordValues(v, n)
+				perr := p.RecordValues(v, n)
+				if (derr == nil) != (perr == nil) {
+					t.Fatalf("RecordValues(%d, %d): dense err %v, packed err %v", v, n, derr, perr)
+				}
+			case 3:
+				if v >= 0 {
+					want := int64(0)
+					if i := d.countsIndexFor(v); i >= 0 && i < len(d.counts) {
+						want = d.counts[i]
+					}
+					if got := p.CountAtValue(v); got != want {
+						t.Fatalf("CountAtValue(%d): packed %d, dense %d", v, got, want)
+					}
+				}
+				pct := float64(arg%100001) / 1000
+				if d.TotalCount() <= 1<<52 {
+					if dv, pv := d.ValueAtPercentile(pct), p.ValueAtPercentile(pct); dv != pv {
+						t.Fatalf("p%v: dense %d, packed %d", pct, dv, pv)
+					}
+				}
+			case 4:
+				de, err := d.Encode(V2CompressedEncodingCookieBase)
+				if err != nil {
+					t.Fatal(err)
+				}
+				pe, err := p.Encode()
+				if err != nil {
+					t.Fatal(err)
+				}
+				if !bytes.Equal(de, pe) {
+					t.Fatalf("encode mismatch (dense %d bytes, packed %d bytes)", len(de), len(pe))
+				}
+				// Swap: continue with each side decoded from the other's stream.
+				if p, err = DecodePacked(de); err != nil {
+					t.Fatalf("DecodePacked(dense stream): %v", err)
+				}
+				if d, err = Decode(pe); err != nil {
+					t.Fatalf("Decode(packed stream): %v", err)
+				}
+			case 5:
+				if d.Min() != p.Min() || d.Max() != p.Max() {
+					t.Fatalf("min/max: dense (%d,%d), packed (%d,%d)", d.Min(), d.Max(), p.Min(), p.Max())
+				}
 			}
-			v = v%high + 1
-			if c < 0 {
-				c = -c
+			if d.TotalCount() != p.TotalCount() {
+				t.Fatalf("total: dense %d, packed %d", d.TotalCount(), p.TotalCount())
 			}
-			c = c%100000 + 1
-			if err := d.RecordValues(v, c); err != nil {
-				continue
-			}
-			if err := p.RecordValues(v, c); err != nil {
-				t.Fatalf("packed rejected a value dense accepted: v=%d c=%d: %v", v, c, err)
-			}
-			touched[d.countsIndexFor(v)] = v
 		}
-		if int(p.Populated()) != len(touched) {
-			t.Fatalf("populated %d != %d distinct recorded buckets", p.Populated(), len(touched))
+
+		if msg := packedCheckState(p); msg != "" {
+			t.Fatalf("packed state invalid: %s", msg)
 		}
-		for idx, v := range touched {
-			if got, want := p.CountAtValue(v), d.counts[idx]; got != want {
-				t.Fatalf("CountAtValue(%d) packed %d != dense %d", v, got, want)
+		j := int32(0)
+		for i, c := range d.counts {
+			var pc int64
+			if j < p.size && int(p.idx[j]) == i {
+				pc = p.slotGet(j)
+				j++
 			}
-		}
-		if d.TotalCount() != p.TotalCount() {
-			t.Fatalf("total %d != %d", d.TotalCount(), p.TotalCount())
+			if pc != c {
+				t.Fatalf("counts[%d]: dense %d, packed %d", i, c, pc)
+			}
 		}
 		if d.Min() != p.Min() || d.Max() != p.Max() {
-			t.Fatalf("min/max mismatch: dense (%d,%d) packed (%d,%d)", d.Min(), d.Max(), p.Min(), p.Max())
+			t.Fatalf("min/max: dense (%d,%d), packed (%d,%d)", d.Min(), d.Max(), p.Min(), p.Max())
 		}
-		for _, pc := range []float64{0, 25, 50, 90, 99, 99.9, 100} {
-			if d.ValueAtPercentile(pc) != p.ValueAtPercentile(pc) {
-				t.Fatalf("p%.4g dense %d != packed %d", pc, d.ValueAtPercentile(pc), p.ValueAtPercentile(pc))
+		if d.TotalCount() <= 1<<52 {
+			for _, pct := range []float64{0, 25, 50, 90, 99, 99.9, 100} {
+				if dv, pv := d.ValueAtPercentile(pct), p.ValueAtPercentile(pct); dv != pv {
+					t.Fatalf("p%v: dense %d, packed %d", pct, dv, pv)
+				}
 			}
-		}
-		de, err := d.Encode(V2CompressedEncodingCookieBase)
-		if err != nil {
-			t.Fatal(err)
-		}
-		pe, err := p.Encode()
-		if err != nil {
-			t.Fatal(err)
-		}
-		if !bytes.Equal(de, pe) {
-			t.Fatalf("encode mismatch (dense %d bytes, packed %d bytes)", len(de), len(pe))
 		}
 	})
 }
