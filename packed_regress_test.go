@@ -109,7 +109,7 @@ func decodeAllocBytes(t *testing.T, enc []byte) (uint64, error) {
 // A small compressed stream must not be able to force a large allocation:
 // the payload is bounded by the geometry before it is inflated.
 func TestPackedDecodeBoundsDecompression(t *testing.T) {
-	const bomb = 64 << 20 // 64 MB of zero bytes compresses to ~64 KB
+	const bomb = 16 << 20 // 16 MB of zero bytes compresses to ~16 KB
 	zeros := make([]byte, bomb)
 
 	t.Run("payloadLen above geometry maximum", func(t *testing.T) {
@@ -118,7 +118,7 @@ func TestPackedDecodeBoundsDecompression(t *testing.T) {
 		if err == nil || !strings.Contains(err.Error(), "exceeds the maximum") {
 			t.Fatalf("err=%v, want PayloadLength rejection", err)
 		}
-		if alloc > 8<<20 {
+		if alloc > 4<<20 {
 			t.Fatalf("decode allocated %d bytes before rejecting a %d-byte compressed stream", alloc, len(enc))
 		}
 	})
@@ -129,7 +129,7 @@ func TestPackedDecodeBoundsDecompression(t *testing.T) {
 		if err == nil || !strings.Contains(err.Error(), "PayloadLength should have the same size") {
 			t.Fatalf("err=%v, want payload length mismatch", err)
 		}
-		if alloc > 8<<20 {
+		if alloc > 4<<20 {
 			t.Fatalf("decode allocated %d bytes before rejecting a %d-byte compressed stream", alloc, len(enc))
 		}
 	})
