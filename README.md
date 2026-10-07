@@ -71,6 +71,53 @@ If you are using Go modules, you can update to the exact point of transfter usin
 go mod edit -replace github.com/codahale/hdrhistogram=github.com/HdrHistogram/hdrhistogram-go@v0.9.0
 ```
 
+## Packed histograms
+-------
+
+`New` allocates the full counts array up front: about 184 KB at a typical latency configuration (`New(1, 3600000000, 3)`), however few values are recorded. When you keep **many sparsely populated histograms** (per endpoint, per tenant, per connection, or a ring of per-second slices), use `PackedHistogram` instead. Its storage grows with the number of populated buckets, holding each count in 1, 2, 4 or 8 bytes as needed:
+
+| Populated buckets | `Histogram` | `PackedHistogram` |
+|---|--:|--:|
+| 10 | 184 KB | ~0.3 KB |
+| 100 | 184 KB | ~0.8 KB |
+| 1,600 | 184 KB | ~10 KB |
+
+It uses the same bucket layout as `Histogram` and the same arguments to construct, and it encodes to the standard V2 compressed format. The bytes are identical to `Histogram.Encode`, so any HdrHistogram reader can decode it, and `DecodePacked` reads streams from any writer. The trade-off is recording speed: recording into an existing bucket is a binary search, and populating a new bucket is O(populated). Keep the dense `Histogram` for hot recording paths and for histograms where most buckets fill up.
+
+```go
+h := hdrhistogram.NewPacked(1, 3600000000, 3)
+h.RecordValue(1234)
+p99 := h.ValueAtPercentile(99)
+encoded, err := h.Encode() // V2 compressed, same bytes as Histogram.Encode
+```
+
+For rolling windows, record into a dense histogram and keep the completed slices packed:
+
+| Need | API |
+|---|---|
+| dense → packed | `MergeFrom(*Histogram)` |
+| packed → dense | `MergeInto(*Histogram)` (same result as `Histogram.Merge`) |
+| packed → packed | `Merge(*PackedHistogram)` |
+| reuse a slot | `Reset()` keeps its storage; `Compact()` shrinks it back to fit |
+| visit populated buckets | `ForEachBucket` (also usable with `range`) |
+
+```go
+// Each second: move the active dense slice into the oldest packed slot.
+slot := ring[second%len(ring)]
+slot.Reset()
+slot.MergeFrom(active)
+active.Reset()
+
+// On demand: aggregate the window into a dense histogram.
+window := hdrhistogram.New(1, 30000000, 3)
+for _, s := range ring {
+	s.MergeInto(window)
+}
+p99 := window.ValueAtQuantile(99)
+```
+
+The merge methods return the count they had to drop (values out of the destination's range, or counts that would overflow a packed total). With the same bucket layout they work in proportion to the populated buckets and do not allocate. See [`ExamplePackedHistogram_MergeInto`](https://pkg.go.dev/github.com/HdrHistogram/hdrhistogram-go#example-PackedHistogram.MergeInto) for a complete ring.
+
 ## Fuzzing
 -------
 
