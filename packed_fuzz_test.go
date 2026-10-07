@@ -284,7 +284,7 @@ func packedFuzzValue(raw uint64, g packedFuzzGeom, topEnd int64) int64 {
 // the other type. Each operation is 17 bytes: an opcode, a value word and an
 // argument word. Opcodes: 0 record, 1 record a small count, 2 record a large
 // or width-edge count, 3 query, 4 encode and cross-decode, 5 min/max, 6 record
-// a run of distinct buckets.
+// a run of distinct buckets, 7 reset, 8 merge (MergeInto and MergeFrom).
 func FuzzPackedDifferential(f *testing.F) {
 	op := func(code byte, v, arg uint64) []byte {
 		b := []byte{code}
@@ -321,6 +321,16 @@ func FuzzPackedDifferential(f *testing.F) {
 		f.Add(uint8(0), s)
 	}
 	f.Add(uint8(4), op(6, 7<<3, 39|(37<<8))) // bulk: 40 buckets with stride 38
+	var window []byte                        // fill, merge across geometries, reset, refill, merge
+	window = append(window, op(6, 7<<3, 39|(37<<8))...)
+	window = append(window, op(2, 3, 1<<33)...)
+	for k := uint64(0); k < 6; k++ {
+		window = append(window, op(8, 0, k)...)
+	}
+	window = append(window, op(7, 0, 0)...)
+	window = append(window, op(1, 500<<3, 99)...)
+	window = append(window, op(8, 0, 1)...)
+	f.Add(uint8(0), window)
 
 	f.Fuzz(func(t *testing.T, geom uint8, ops []byte) {
 		g := packedDiffGeoms[int(geom)%len(packedDiffGeoms)]
@@ -359,7 +369,7 @@ func FuzzPackedDifferential(f *testing.F) {
 		const maxOps, maxRoundTrips = 256, 4
 		roundTrips := 0
 		for nops := 0; len(ops) >= 17 && nops < maxOps; nops++ {
-			code := ops[0] % 7
+			code := ops[0] % 9
 			v := packedFuzzValue(binary.BigEndian.Uint64(ops[1:]), g, topEnd)
 			arg := binary.BigEndian.Uint64(ops[9:])
 			ops = ops[17:]
@@ -425,6 +435,52 @@ func FuzzPackedDifferential(f *testing.F) {
 				stride := int64((arg>>8)%1000) + 1
 				for i := int64(0); i < k && v <= math.MaxInt64-i*stride; i++ {
 					record(v+i*stride, 1)
+				}
+			case 7: // reset both, as a rolling-window slot would be reused
+				d.Reset()
+				p.Reset()
+			case 8: // merges: MergeInto must equal dense Merge; MergeFrom must rebuild p
+				dg := packedDiffGeoms[int(arg%uint64(len(packedDiffGeoms)))]
+				want := New(dg.low, dg.high, int(dg.sig))
+				got := New(dg.low, dg.high, int(dg.sig))
+				if wd, gd := want.Merge(d), p.MergeInto(got); wd != gd {
+					t.Fatalf("MergeInto dropped %d, dense Merge dropped %d", gd, wd)
+				}
+				if want.TotalCount() != got.TotalCount() {
+					t.Fatalf("MergeInto total %d, dense Merge total %d", got.TotalCount(), want.TotalCount())
+				}
+				for i := range want.counts {
+					if want.counts[i] != got.counts[i] {
+						t.Fatalf("MergeInto counts[%d] = %d, dense Merge %d", i, got.counts[i], want.counts[i])
+					}
+				}
+				q := NewPacked(g.low, g.high, int(g.sig))
+				if dropped := q.MergeFrom(d); dropped != 0 || !packedSameBuckets(p, q) || q.TotalCount() != p.TotalCount() {
+					t.Fatalf("MergeFrom(dense twin) differs: dropped %d, total %d vs %d", dropped, q.TotalCount(), p.TotalCount())
+				}
+				// MergeFrom into the fuzzed geometry must equal recording every
+				// dense bucket there (exercising the re-recording and drop paths).
+				mq, rq := NewPacked(dg.low, dg.high, int(dg.sig)), NewPacked(dg.low, dg.high, int(dg.sig))
+				var wantDropped int64
+				it := d.rIterator()
+				for it.next() {
+					if rq.RecordValues(it.valueFromIdx, it.countAtIdx) != nil {
+						wantDropped += it.countAtIdx
+					}
+				}
+				if dropped := mq.MergeFrom(d); dropped != wantDropped || !packedSameBuckets(mq, rq) || mq.TotalCount() != rq.TotalCount() {
+					t.Fatalf("MergeFrom into %v: dropped %d (want %d), total %d (want %d)", dg, dropped, wantDropped, mq.TotalCount(), rq.TotalCount())
+				}
+				// ForEachBucket must visit exactly the dense buckets, in order.
+				it = d.rIterator()
+				p.ForEachBucket(func(v, c int64) bool {
+					if !it.next() || v != it.valueFromIdx || c != it.countAtIdx {
+						t.Fatalf("ForEachBucket (%d,%d) differs from dense iteration", v, c)
+					}
+					return true
+				})
+				if it.next() {
+					t.Fatal("ForEachBucket stopped before dense iteration did")
 				}
 			}
 			if d.TotalCount() != p.TotalCount() {

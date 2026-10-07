@@ -101,7 +101,9 @@ func (p *PackedHistogram) widenToFit(need int64) {
 	if nw == p.width {
 		return
 	}
-	nb := make([]byte, int(p.size)*int(nw))
+	// Keep the slot capacity the old buffer had (e.g. retained by Reset), at the
+	// new width, so widening does not throw it away.
+	nb := make([]byte, int(p.size)*int(nw), cap(p.cnt)/int(p.width)*int(nw))
 	for i := int32(0); i < p.size; i++ {
 		v := p.slotGet(i) // reads at old width from p.cnt
 		off := int(i) * int(nw)
