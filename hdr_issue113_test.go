@@ -107,6 +107,11 @@ func TestMergeDropsTotalOverflow(t *testing.T) {
 		t.Fatalf("self-merge dropped %d", d)
 	}
 	checkDenseConsistent(t, "self-merge", s)
+	ps := NewPacked(1, 10_000_000, 3)
+	_ = ps.RecordValues(1000, math.MaxInt64/2+1)
+	if d := ps.Merge(ps); d != math.MaxInt64/2+1 || ps.TotalCount() != s.TotalCount() {
+		t.Fatalf("packed self-merge dropped %d total %d, dense total %d", d, ps.TotalCount(), s.TotalCount())
+	}
 }
 
 func TestWindowedMergeDoesNotWrapTotal(t *testing.T) {

@@ -122,7 +122,7 @@ for _, s := range ring {
 p99 := window.ValueAtQuantile(99)
 ```
 
-The merge methods return the count they had to drop (values out of the destination's range, or counts that would overflow the destination's total). Dense and packed `RecordValues` reject a count that would overflow the total, so totals never wrap. Costs differ by operation:
+The merge methods return the count they had to drop (values out of the destination's range, or counts that would overflow the destination's total). Dense and packed `RecordValues` reject a count that would overflow the total, so recording and merging never wrap it. (Dense `Import` of a snapshot that fails `Snapshot.Validate` still can.) Costs differ by operation:
 
 | Operation | Work and allocations |
 |---|---|

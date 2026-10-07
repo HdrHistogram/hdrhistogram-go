@@ -77,7 +77,7 @@ There is no internal synchronization. Concurrent readers are safe only while the
 
 ## Merge and logging limits
 
-`MergeInto` matches `Histogram.Merge` for sources whose positive bucket-count sum fits in `int64`. It adds every populated source bucket that fits the destination's range. Like `Histogram.Merge` and both `RecordValues` methods, it drops a count that would push the destination's total past `MaxInt64` instead of wrapping, and reports it as dropped. For a decoded saturated source, it visits every positive bucket and drops what the destination cannot hold. C has no equivalent packed merge API in the reviewed revision; Java's same-layout addition can also wrap its total.
+`MergeInto` matches `Histogram.Merge` for sources whose positive bucket-count sum fits in `int64`. It adds every populated source bucket that fits the destination's range. Like `Histogram.Merge` and both `RecordValues` methods, it drops a count that would push the destination's total past `MaxInt64` instead of wrapping, and reports it as dropped. For a decoded saturated source, it visits every positive bucket and drops what the destination cannot hold. C has no equivalent packed merge API in the reviewed revision; unlike this port, Java's same-layout addition can wrap its total.
 
 Allocation and complexity guarantees are specific to each operation; see the [merge cost table](README.md#packed-histograms). Matching geometry avoids remapping values but does not avoid scanning a dense source or allocating when packed storage grows.
 

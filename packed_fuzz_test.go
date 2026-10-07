@@ -361,6 +361,13 @@ func FuzzPackedDifferential(f *testing.F) {
 	window = append(window, op(1, 500<<3, 99)...)
 	window = append(window, op(8, 0, 1)...)
 	f.Add(uint8(0), window)
+	var limit []byte // fill to MaxInt64-1, then try to pass it, then merge near the limit (#113)
+	limit = append(limit, op(2, 1000<<3, 1<<43)...)
+	limit = append(limit, op(2, 2000<<3, 1<<43|2)...)
+	limit = append(limit, op(8, 0, 0)...)
+	limit = append(limit, op(2, 3000<<3, 1<<43|1)...)
+	limit = append(limit, op(8, 0, 1)...)
+	f.Add(uint8(0), limit)
 
 	f.Fuzz(func(t *testing.T, geom uint8, ops []byte) {
 		g := packedDiffGeoms[int(geom)%len(packedDiffGeoms)]
@@ -415,6 +422,13 @@ func FuzzPackedDifferential(f *testing.F) {
 						n = packedWidthMax(w) - p.CountAtValue(v) + int64(arg%3) - 1
 						if n < 1 {
 							n = 1
+						}
+					}
+					if arg>>43&1 == 1 {
+						// Land the total on MaxInt64-1, MaxInt64 or one past it (#113).
+						n = math.MaxInt64 - d.TotalCount() + int64(arg%3) - 1
+						if n < 1 {
+							n = 1 + int64(arg%3) // already full: try to overflow
 						}
 					}
 				}
@@ -480,17 +494,31 @@ func FuzzPackedDifferential(f *testing.F) {
 				}
 			case 8: // merges: MergeInto must equal dense Merge; MergeFrom must rebuild p
 				dg := packedDiffGeoms[int(arg%uint64(len(packedDiffGeoms)))]
-				want := New(dg.low, dg.high, int(dg.sig))
-				got := New(dg.low, dg.high, int(dg.sig))
-				if wd, gd := want.Merge(d), p.MergeInto(got); wd != gd {
-					t.Fatalf("MergeInto dropped %d, dense Merge dropped %d", gd, wd)
-				}
-				if want.TotalCount() != got.TotalCount() {
-					t.Fatalf("MergeInto total %d, dense Merge total %d", got.TotalCount(), want.TotalCount())
-				}
-				for i := range want.counts {
-					if want.counts[i] != got.counts[i] {
-						t.Fatalf("MergeInto counts[%d] = %d, dense Merge %d", i, got.counts[i], want.counts[i])
+				// Into an empty destination, then into one pre-filled close to
+				// MaxInt64, where both must drop the same counts (#113).
+				fill := math.MaxInt64 - d.TotalCount()/2 - int64(arg>>32%4)
+				for _, prefill := range []int64{0, fill} {
+					want := New(dg.low, dg.high, int(dg.sig))
+					got := New(dg.low, dg.high, int(dg.sig))
+					if err := want.RecordValues(0, prefill); err != nil {
+						t.Fatal(err)
+					}
+					_ = got.RecordValues(0, prefill)
+					if wd, gd := want.Merge(d), p.MergeInto(got); wd != gd {
+						t.Fatalf("prefill %d: MergeInto dropped %d, dense Merge dropped %d", prefill, gd, wd)
+					}
+					if want.TotalCount() != got.TotalCount() || got.TotalCount() < 0 {
+						t.Fatalf("prefill %d: MergeInto total %d, dense Merge total %d", prefill, got.TotalCount(), want.TotalCount())
+					}
+					var sum int64
+					for i := range want.counts {
+						if want.counts[i] != got.counts[i] {
+							t.Fatalf("prefill %d: MergeInto counts[%d] = %d, dense Merge %d", prefill, i, got.counts[i], want.counts[i])
+						}
+						sum += got.counts[i]
+					}
+					if sum != got.TotalCount() {
+						t.Fatalf("prefill %d: counts sum %d, total %d", prefill, sum, got.TotalCount())
 					}
 				}
 				q := NewPacked(g.low, g.high, int(g.sig))
