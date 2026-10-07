@@ -204,10 +204,10 @@ func FuzzPackedDecodeHostile(f *testing.F) {
 	f.Add(uint8(5), int8(0), uint8(0), []byte{0xfd, 0x0e, 0x02})                                           // zero-run of 959, then the top bucket (wraps without saturation)
 	f.Add(uint8(0), int8(3), uint8(1), []byte{0x14, 0x14})                                                 // payloadLen too long
 	f.Add(uint8(0), int8(-1), uint8(1), []byte{0x14, 0x14})                                                // payloadLen too short
-	f.Add(uint8(0), int8(2), uint8(2), []byte{0x14})
-	f.Add(uint8(0), int8(1), uint8(2), []byte{0x14})                                                       // legacy Go offset 1
+	f.Add(uint8(0), int8(2), uint8(2), []byte{0x14})                                                       // normalizingIndexOffset 2 (ignored)
+	f.Add(uint8(0), int8(1), uint8(2), []byte{0x14})                                                       // legacy Go offset 1 (ignored)
 	f.Add(uint8(0), int8(0), uint8(0), []byte{0xfe, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0x02}) // MaxInt64 then 1: saturated total
-	f.Add(uint8(0), int8(0), uint8(0), []byte{0x02, 0xfe, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff}) // 1 then MaxInt64                                                       // rotated histogram
+	f.Add(uint8(0), int8(0), uint8(0), []byte{0x02, 0xfe, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff}) // 1 then MaxInt64
 
 	f.Fuzz(func(t *testing.T, geom uint8, lenDelta int8, flags uint8, payload []byte) {
 		g := packedDecodeGeoms[int(geom)%len(packedDecodeGeoms)]

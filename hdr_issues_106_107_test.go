@@ -98,6 +98,10 @@ func TestDecodersIgnoreNormalizingIndexOffset(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
+		wantDense, err := Decode(base)
+		if err != nil {
+			t.Fatal(err)
+		}
 		for _, off := range []int32{1, 2, -1, 1024, 2048, math.MaxInt32, math.MinInt32} {
 			enc := buildPackedV2Stream(1, 1000, sig, 3, off, 0, []byte{0x14, 0x01, 0x06})
 			p, err := DecodePacked(enc)
@@ -105,8 +109,8 @@ func TestDecodersIgnoreNormalizingIndexOffset(t *testing.T) {
 				t.Fatalf("sig %d offset %d: packed err %v or buckets differ", sig, off, err)
 			}
 			d, err := Decode(enc)
-			if err != nil || d.TotalCount() != want.TotalCount() {
-				t.Fatalf("sig %d offset %d: dense err %v", sig, off, err)
+			if err != nil || !d.Equals(wantDense) {
+				t.Fatalf("sig %d offset %d: dense err %v or histogram differs", sig, off, err)
 			}
 		}
 	}
@@ -136,6 +140,12 @@ func TestDenseDecodeRejectsCountSumOverflow(t *testing.T) {
 	}
 	if d.TotalCount() != math.MaxInt64 {
 		t.Fatalf("exact MaxInt64: total %d", d.TotalCount())
+	}
+	// Exactly MaxInt64 reached across several buckets also decodes.
+	half := zig_zag_encode_i64(math.MaxInt64 / 2)
+	spread := append(append(append([]byte{}, half...), half...), 2) // MaxInt64/2 + MaxInt64/2 + 1 == MaxInt64
+	if d, err := Decode(buildPackedV2Stream(1, 10000, 3, int32(len(spread)), 0, 0, spread)); err != nil || d.TotalCount() != math.MaxInt64 {
+		t.Fatalf("MaxInt64 across buckets: err %v", err)
 	}
 	one := append(append([]byte{}, maxCount...), 2)
 	if _, err := Decode(buildPackedV2Stream(1, 10000, 3, int32(len(one)), 0, 0, one)); err == nil {
