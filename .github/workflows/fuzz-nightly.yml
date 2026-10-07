@@ -85,6 +85,7 @@ jobs:
       id: minimize
       if: env.MINIMIZE == 'true' || github.event_name == 'schedule'
       run: |
+        set -o pipefail
         if [ "$MINIMIZE" != true ] && [ "$(date -u +%u)" != 7 ]; then
           echo "Not Sunday; skipping." && exit 0
         fi
