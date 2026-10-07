@@ -204,9 +204,10 @@ func FuzzPackedDecodeHostile(f *testing.F) {
 	f.Add(uint8(5), int8(0), uint8(0), []byte{0xfd, 0x0e, 0x02})                                           // zero-run of 959, then the top bucket (wraps without saturation)
 	f.Add(uint8(0), int8(3), uint8(1), []byte{0x14, 0x14})                                                 // payloadLen too long
 	f.Add(uint8(0), int8(-1), uint8(1), []byte{0x14, 0x14})                                                // payloadLen too short
-	f.Add(uint8(0), int8(2), uint8(2), []byte{0x14})
+	f.Add(uint8(0), int8(2), uint8(2), []byte{0x14})                                                       // normalizingIndexOffset 2 (ignored)
+	f.Add(uint8(0), int8(1), uint8(2), []byte{0x14})                                                       // legacy Go offset 1 (ignored)
 	f.Add(uint8(0), int8(0), uint8(0), []byte{0xfe, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0x02}) // MaxInt64 then 1: saturated total
-	f.Add(uint8(0), int8(0), uint8(0), []byte{0x02, 0xfe, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff}) // 1 then MaxInt64                                                       // rotated histogram
+	f.Add(uint8(0), int8(0), uint8(0), []byte{0x02, 0xfe, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff}) // 1 then MaxInt64
 
 	f.Fuzz(func(t *testing.T, geom uint8, lenDelta int8, flags uint8, payload []byte) {
 		g := packedDecodeGeoms[int(geom)%len(packedDecodeGeoms)]
@@ -226,9 +227,17 @@ func FuzzPackedDecodeHostile(f *testing.F) {
 		if err != nil {
 			return
 		}
-		if payloadLen != int32(len(payload)) || normOff != 0 || cookieXor != 0 {
+		if payloadLen != int32(len(payload)) || cookieXor != 0 {
 			t.Fatalf("accepted an inconsistent header: payloadLen %d (actual %d), normOff %d, cookieXor %#x",
 				payloadLen, len(payload), normOff, cookieXor)
+		}
+		// normalizingIndexOffset only describes a writer's in-memory layout, so
+		// it must never change what is decoded.
+		if normOff != 0 {
+			plain, err := DecodePacked(buildPackedV2Stream(g.low, g.high, g.sig, payloadLen, 0, 0, payload))
+			if err != nil || !packedSameBuckets(hp, plain) || hp.TotalCount() != plain.TotalCount() {
+				t.Fatalf("offset %d changed the decoded histogram (offset-0 decode err %v)", normOff, err)
+			}
 		}
 		if msg := packedCheckState(hp); msg != "" {
 			t.Fatalf("decoded state invalid: %s", msg)

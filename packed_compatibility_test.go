@@ -8,7 +8,6 @@ import (
 	"io"
 	"math"
 	"reflect"
-	"strings"
 	"testing"
 
 	hdr "github.com/HdrHistogram/hdrhistogram-go"
@@ -102,11 +101,23 @@ func TestPackedCompatibilityConstructorPolicy(t *testing.T) {
 }
 
 // Produced by Java PackedHistogram after shiftValuesLeft(2), with a serialized
-// normalizingIndexOffset of 2048. This is valid Java data outside Go's subset.
-func TestPackedCompatibilityRejectsShiftedJavaFixture(t *testing.T) {
+// normalizingIndexOffset of 2048. Java writes the payload in logical order, so
+// both Go decoders read it as Java does: 7 counts in the bucket at 4936.
+func TestPackedCompatibilityReadsShiftedJavaFixture(t *testing.T) {
 	fixture := []byte("HISTFAAAACR4nJNpmSzMwMDAzMDAwQChwYARTPI7Odh/gAgsNuYDAEyEA/o=")
-	if _, err := hdr.DecodePacked(fixture); err == nil || !strings.Contains(err.Error(), "normalizingIndexOffset 2048") {
-		t.Fatalf("shifted Java stream error = %v", err)
+	p, err := hdr.DecodePacked(fixture)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if p.TotalCount() != 7 || p.Min() != 4936 || p.Max() != 4939 || p.CountAtValue(4936) != 7 {
+		t.Fatalf("packed: total %d min %d max %d, want Java's 7 4936 4939", p.TotalCount(), p.Min(), p.Max())
+	}
+	d, err := hdr.Decode(fixture)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if d.TotalCount() != 7 || d.Min() != 4936 || d.Max() != 4939 {
+		t.Fatalf("dense: total %d min %d max %d, want Java's 7 4936 4939", d.TotalCount(), d.Min(), d.Max())
 	}
 }
 

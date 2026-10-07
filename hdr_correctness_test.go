@@ -28,7 +28,8 @@ func TestMeanNoInt64Overflow(t *testing.T) {
 }
 
 // C2: the serialized normalizing index offset must be 0, since this port stores
-// counts[] unrotated. A non-zero value makes the C/Java readers misplace buckets.
+// counts[] unrotated. A non-zero value makes the C reader, which applies the
+// offset to the payload, misplace buckets (Java ignores it for the payload).
 func TestSerializedNormalizingIndexOffsetIsZero(t *testing.T) {
 	h := New(1, 1_000_000, 3)
 	_ = h.RecordValue(42)

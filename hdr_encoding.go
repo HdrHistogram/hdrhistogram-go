@@ -24,6 +24,7 @@ import (
 	"encoding/binary"
 	"fmt"
 	"io"
+	"math"
 )
 
 const (
@@ -55,6 +56,14 @@ func (h *Histogram) Encode(version int32) (buffer []byte, err error) {
 // 1 for compatibility with streams written by hdrhistogram-go v1.0.0. Any
 // range Go's constructors accept decodes. The conversion ratio is kept as
 // metadata and written back by Encode.
+//
+// The normalizingIndexOffset header field is ignored: writers serialize the
+// payload in logical index order (Java's encoder reads through its in-memory
+// rotation), so the field only describes the writer's internal layout. This
+// covers shifted Java histograms and the offset 1 that hdrhistogram-go v1.2.0
+// and earlier wrote. A payload whose bucket counts sum past MaxInt64 is
+// rejected, since a dense histogram cannot represent that total (DecodePacked
+// keeps such buckets and saturates its total).
 func Decode(encoded []byte) (rh *Histogram, err error) {
 	var decoded []byte
 	decoded, err = base64.StdEncoding.DecodeString(string(encoded))
@@ -232,9 +241,11 @@ func decodeCompressedFormat(compressedContents []byte, headerSize int) (rh *Hist
 	}
 	geometry.counts = make([]int64, geometry.countsLen)
 	geometry.conversionRatio = conversionRatio
-	rh = geometry
-	err = fillCountsArrayFromSourceBuffer(payload, rh)
-	return rh, err
+	if err = fillCountsArrayFromSourceBuffer(payload, geometry); err != nil {
+		// Never hand back a partially filled histogram for a corrupt payload.
+		return nil, err
+	}
+	return geometry, nil
 }
 
 func fillCountsArrayFromSourceBuffer(payload []byte, rh *Histogram) (err error) {
@@ -264,6 +275,12 @@ func fillCountsArrayFromSourceBuffer(payload []byte, rh *Histogram) (err error) 
 			// hot path); the decode path validates the untrusted index here instead.
 			if dstIndex >= int64(len(rh.counts)) {
 				return fmt.Errorf("corrupt histogram payload: index %d overflows counts array of length %d", dstIndex, len(rh.counts))
+			}
+			// A dense histogram cannot represent a total past int64: a wrapped
+			// total would make every query see an empty or wrong distribution.
+			// (DecodePacked keeps such buckets and saturates its total instead.)
+			if count > math.MaxInt64-rh.totalCount {
+				return fmt.Errorf("corrupt histogram payload: bucket counts sum past MaxInt64 at index %d", dstIndex)
 			}
 			rh.setCountAtIndex(int(dstIndex), count)
 			dstIndex += 1

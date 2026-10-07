@@ -230,8 +230,8 @@ func TestDecodeGoV100LowestBelowOne(t *testing.T) {
 				d.TotalCount(), d.Min(), d.Max(), d.ValueAtQuantile(50))
 		}
 	}
-	// DecodePacked is not checked here: Go before #66 also wrote a
-	// normalizingIndexOffset of 1, which DecodePacked rejects (see #88).
+	// DecodePacked of these streams (which also carry v1.0.0's legacy
+	// normalizingIndexOffset of 1) is covered by TestDecodeLegacyGoOffsetStreams.
 }
 
 // #84 through Export/Import: a snapshot of a decoded 0-digit histogram must

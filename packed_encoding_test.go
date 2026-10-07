@@ -64,10 +64,9 @@ func TestPackedEncodingInterop(t *testing.T) {
 }
 
 // decode rejects a stream carrying a non-zero normalizingIndexOffset.
-func TestPackedDecodeRejectsRotated(t *testing.T) {
-	// Build a valid dense stream, then confirm a fresh one (offset 0) decodes and a
-	// crafted non-zero offset is rejected is covered via the dense path; here we
-	// just assert a normal stream decodes, and an empty packed round-trips.
+// An empty packed histogram round-trips. (Non-zero normalizingIndexOffset
+// handling is covered by TestDecodersIgnoreNormalizingIndexOffset.)
+func TestPackedEmptyRoundTrip(t *testing.T) {
 	p := NewPacked(1, 3600000000, 3)
 	enc, err := p.Encode()
 	if err != nil {

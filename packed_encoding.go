@@ -88,9 +88,10 @@ func (p *PackedHistogram) Encode() ([]byte, error) {
 }
 
 // DecodePacked decodes a standard V2 compressed (base64) stream into a new
-// PackedHistogram. It rejects a non-zero normalizingIndexOffset (packed
-// histograms are never rotated) rather than mis-indexing it, so valid shifted
-// Java streams are outside the supported subset. It uses the serialized
+// PackedHistogram. Like Decode, it ignores the normalizingIndexOffset header
+// field, which only describes the writer's in-memory layout (the payload is in
+// logical index order), so shifted Java histograms and streams from
+// hdrhistogram-go v1.2.0 and earlier (offset 1) decode. It uses the serialized
 // geometry exactly, including zero significant digits; precision outside 0-5
 // and unrepresentable geometry are rejected. Lowest values below 1 are read as
 // 1 for compatibility with hdrhistogram-go v1.0.0 streams, and any range Go's
@@ -141,7 +142,7 @@ func decodePackedCompressed(compressed []byte) (rp *PackedHistogram, err error) 
 		}
 		return nil, fmt.Errorf("decompressed histogram truncated: got %d bytes, need at least %d", n, ENCODING_HEADER_SIZE)
 	}
-	cookie, payloadLen, normOff, sig, low, high, conversionRatio, err := decodeDeCompressedHeaderFormat(hdr)
+	cookie, payloadLen, _, sig, low, high, conversionRatio, err := decodeDeCompressedHeaderFormat(hdr)
 	if err != nil {
 		// Defensive: decodeDeCompressedHeaderFormat reads exactly the 40 bytes
 		// guaranteed present by the ReadFull above, so binary.Read cannot
@@ -150,9 +151,6 @@ func decodePackedCompressed(compressed []byte) (rp *PackedHistogram, err error) 
 	}
 	if cookie != V2EncodingCookieBase {
 		return nil, fmt.Errorf("encoding not supported, only V2 is supported. got %d want %d", cookie, V2EncodingCookieBase)
-	}
-	if normOff != 0 {
-		return nil, fmt.Errorf("packed decode: non-zero normalizingIndexOffset %d is not supported", normOff)
 	}
 	if payloadLen < 0 {
 		return nil, fmt.Errorf("negative PayloadLength: %d", payloadLen)

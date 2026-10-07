@@ -82,7 +82,7 @@ go mod edit -replace github.com/codahale/hdrhistogram=github.com/HdrHistogram/hd
 | 100 | 184 KB | ~0.8 KB |
 | 1,600 | 184 KB | ~10 KB |
 
-It uses the same bucket layout and constructor arguments as `Histogram`. `Encode` emits the standard V2 compressed format, with the same bytes as the dense encoder on equivalent data. `DecodePacked` accepts the supported V2 subset with `normalizingIndexOffset == 0`; shifted Java streams with nonzero offsets are rejected. The conversion ratio is kept as metadata and written back on encode; counts stay integer bucket counts. See the [C/Java compatibility guide](PACKED_COMPATIBILITY.md) for query, constructor and wire-format policies.
+It uses the same bucket layout and constructor arguments as `Histogram`. `Encode` emits the standard V2 compressed format, with the same bytes as the dense encoder on equivalent data. `DecodePacked` and `Decode` read V2 streams from Go, Java and C writers, including shifted Java histograms: the `normalizingIndexOffset` header field only describes a writer's in-memory layout, so both decoders ignore it. The conversion ratio is kept as metadata and written back on encode; counts stay integer bucket counts. See the [C/Java compatibility guide](PACKED_COMPATIBILITY.md) for query, constructor and wire-format policies.
 
 The trade-off is recording speed: recording into an existing bucket is a binary search, and populating a new bucket is O(populated). Keep the dense `Histogram` for hot recording paths and for histograms where most buckets fill up. Do not copy an initialized `PackedHistogram` by value; synchronize all mutations against concurrent reads and writes.
 

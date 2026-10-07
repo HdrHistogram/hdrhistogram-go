@@ -245,9 +245,8 @@ func (h *Histogram) ByteSize() int {
 
 func (h *Histogram) getNormalizingIndexOffset() int32 {
 	// This port stores counts[] unrotated, so the serialized normalizing index
-	// offset must be 0. Emitting a non-zero value here makes conforming readers
-	// (the C and Java reference implementations) shift every bucket by that offset
-	// when they decode a histogram written by this library.
+	// offset must be 0. The C reader applies a non-zero offset to the payload and
+	// would shift every bucket (Java and Go ignore it for the payload).
 	return 0
 }
 
