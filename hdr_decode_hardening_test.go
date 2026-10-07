@@ -64,7 +64,7 @@ func TestNewPanicsInsteadOfHangingOnUnrepresentableGeometry(t *testing.T) {
 			defer func() { recovered = recover() }()
 			New(low*2, math.MaxInt64, sig)
 		})
-		if recovered == nil || !strings.Contains(recovered.(string), "too large") {
+		if msg, _ := recovered.(string); !strings.Contains(msg, "too large") {
 			t.Fatalf("sig %d: New(%d, ...) recovered %v, want a 'too large' panic", sig, low*2, recovered)
 		}
 	}
@@ -110,7 +110,9 @@ func TestDecodeRejectsMinInt64ZeroRun(t *testing.T) {
 
 // The dense decoder now bounds the payload by the geometry before inflating it.
 func TestDecodeBoundsDecompression(t *testing.T) {
-	const bomb = 16 << 20 // 16 MB of zero bytes compresses to ~16 KB
+	// 1 MB of zero bytes compresses to ~1 KB, yet is well above this geometry's
+	// maximum payload (23552 counts * 9 bytes, about 212 KB).
+	const bomb = 1 << 20
 	zeros := make([]byte, bomb)
 	alloc := func(enc []byte) (uint64, error) {
 		var before, after runtime.MemStats
@@ -126,7 +128,7 @@ func TestDecodeBoundsDecompression(t *testing.T) {
 	if err == nil || !strings.Contains(err.Error(), "exceeds the maximum") {
 		t.Fatalf("err = %v, want PayloadLength rejection", err)
 	}
-	if got > 4<<20 {
+	if got > 512<<10 {
 		t.Fatalf("Decode allocated %d bytes before rejecting a %d-byte stream", got, len(enc))
 	}
 
@@ -135,7 +137,7 @@ func TestDecodeBoundsDecompression(t *testing.T) {
 	if err == nil || !strings.Contains(err.Error(), "PayloadLength should have the same size") {
 		t.Fatalf("err = %v, want payload length mismatch", err)
 	}
-	if got > 4<<20 {
+	if got > 512<<10 {
 		t.Fatalf("Decode allocated %d bytes before rejecting a %d-byte stream", got, len(enc))
 	}
 

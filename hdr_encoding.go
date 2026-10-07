@@ -186,8 +186,9 @@ func decodeCompressedFormat(compressedContents []byte, headerSize int) (rh *Hist
 		}
 	}()
 	// Read the fixed-size header first, so the geometry is validated and the
-	// payload bounded before anything is inflated: a small compressed stream must
-	// not be able to force a large allocation or an unrepresentable geometry.
+	// inflated payload bounded before anything else is read. This bounds
+	// decompression, not the counts array: a valid header for a wide geometry
+	// (e.g. 1..MaxInt64 at 5 digits) still allocates countsLen*8 bytes.
 	header := make([]byte, headerSize)
 	if n, rerr := io.ReadFull(z, header); rerr != nil {
 		if rerr != io.EOF && rerr != io.ErrUnexpectedEOF {
