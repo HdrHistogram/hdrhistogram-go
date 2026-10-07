@@ -47,7 +47,7 @@ jobs:
         restore-keys: fuzz-corpus-${{ matrix.target }}-
 
     - name: Fuzz ${{ matrix.target }}
-      run: go test -run='^$' -fuzz='^${{ matrix.target }}$' -fuzztime=30s ./...
+      run: go test -run='^$' -fuzz='^${{ matrix.target }}$' -fuzztime=30s .
 
     - name: Upload failing input
       if: failure()

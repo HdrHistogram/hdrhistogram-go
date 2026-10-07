@@ -1,21 +1,27 @@
 name: Fuzz nightly
 # Long native Go fuzzing of every Fuzz* target. Each target's generated corpus
 # is persisted in the Actions cache, so every night continues from the last one
-# and the per-PR "Fuzz smoke" job starts from it too.
+# and the per-PR "Fuzz smoke" job starts from it too. On Sundays (or on demand)
+# each corpus is minimised first, so it holds no entries later ones supersede.
 on:
   schedule:
     - cron: '17 2 * * *'
   workflow_dispatch:
     inputs:
-      fuzztime:
-        description: 'Fuzzing time per target (Go duration, e.g. 30m, 2h)'
+      fuzzminutes:
+        description: 'Fuzzing time per target, in minutes (1-300)'
         required: false
-        default: '30m'
+        default: '30'
+      minimize:
+        description: 'Minimise each corpus before fuzzing'
+        type: boolean
+        default: false
   pull_request:
     # Validate the workflow itself on PRs that change it, with a short run.
     paths:
       - '.github/workflows/fuzz-nightly.yml'
       - '.github/scripts/fuzz-targets.sh'
+      - '.github/scripts/fuzz-corpus-minimize.sh'
 
 permissions:
   contents: read
@@ -25,7 +31,9 @@ concurrency:
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 env:
-  FUZZTIME: ${{ github.event_name == 'pull_request' && '45s' || inputs.fuzztime || '30m' }}
+  FUZZ_MINUTES: ${{ github.event_name == 'pull_request' && '1' || inputs.fuzzminutes || '30' }}
+  # PRs minimise too, to validate the script (their caches are never saved).
+  MINIMIZE: ${{ github.event_name == 'pull_request' || inputs.minimize == true }}
 
 jobs:
   targets:
@@ -40,7 +48,9 @@ jobs:
   fuzz:
     needs: targets
     runs-on: ubuntu-latest
-    timeout-minutes: 180
+    # The fuzz step stops itself at FUZZ_MINUTES + 10 (see below), so the corpus
+    # is still saved; this job limit is only a backstop.
+    timeout-minutes: 360
     strategy:
       fail-fast: false
       matrix:
@@ -71,13 +81,37 @@ jobs:
         key: fuzz-corpus-${{ matrix.target }}-${{ github.run_id }}
         restore-keys: fuzz-corpus-${{ matrix.target }}-
 
-    - name: Fuzz ${{ matrix.target }} for ${{ env.FUZZTIME }}
+    - name: Minimise corpus
+      id: minimize
+      if: env.MINIMIZE == 'true' || github.event_name == 'schedule'
+      run: |
+        set -o pipefail
+        if [ "$MINIMIZE" != true ] && [ "$(date -u +%u)" != 7 ]; then
+          echo "Not Sunday; skipping." && exit 0
+        fi
+        # Bounded so minimising can never eat the fuzzing or corpus-saving time.
+        timeout -k 60 1800 .github/scripts/fuzz-corpus-minimize.sh '${{ matrix.target }}' '${{ steps.corpus.outputs.dir }}' | tee minimize.log
+
+    - name: Fuzz ${{ matrix.target }} for ${{ env.FUZZ_MINUTES }}m
       id: fuzz
       run: |
         set -o pipefail
+        if ! [[ "$FUZZ_MINUTES" =~ ^[1-9][0-9]*$ ]] || [ "$FUZZ_MINUTES" -gt 300 ]; then
+          echo "::error::fuzzminutes must be a whole number from 1 to 300, got '$FUZZ_MINUTES'"
+          exit 1
+        fi
         before=$(find "${{ steps.corpus.outputs.dir }}" -type f | wc -l)
         echo "before=$before" >> "$GITHUB_OUTPUT"
-        go test -run='^$' -fuzz='^${{ matrix.target }}$' -fuzztime="$FUZZTIME" -timeout=0 . 2>&1 | tee fuzz.log
+        # Hard stop 10 minutes after the fuzz time, so a hang still leaves time
+        # to save the corpus (the corpus is written as it grows).
+        rc=0
+        timeout -k 60 "$(( (FUZZ_MINUTES + 10) * 60 ))" \
+          go test -run='^$' -fuzz='^${{ matrix.target }}$' -fuzztime="${FUZZ_MINUTES}m" -timeout=0 . 2>&1 | tee fuzz.log || rc=$?
+        if [ "$rc" = 124 ] || [ "$rc" = 137 ]; then
+          echo "hardstop=true" >> "$GITHUB_OUTPUT"
+          echo "::error::${{ matrix.target }} did not finish within ${FUZZ_MINUTES}m + 10m (hang?); stopped so the corpus can still be saved"
+        fi
+        exit "$rc"
 
     - name: Summary
       if: always()
@@ -85,7 +119,8 @@ jobs:
         after=$(find "${{ steps.corpus.outputs.dir }}" -type f | wc -l)
         {
           echo "### ${{ matrix.target }}"
-          echo "- fuzz time: $FUZZTIME, outcome: ${{ steps.fuzz.outcome }}"
+          echo "- fuzz time: ${FUZZ_MINUTES}m, outcome: ${{ steps.fuzz.outcome }}"
+          if [ -f minimize.log ]; then echo "- minimised: $(tail -1 minimize.log)"; fi
           echo "- corpus entries: ${{ steps.fuzz.outputs.before }} → $after"
           echo '```'
           grep -E '^fuzz: elapsed' fuzz.log | tail -1 || true
@@ -95,6 +130,10 @@ jobs:
     - name: Report failing input
       if: failure() && steps.fuzz.outcome == 'failure'
       run: |
+        if [ "${{ steps.fuzz.outputs.hardstop }}" = true ]; then
+          echo "**${{ matrix.target }} hit the hard stop** (no result within the fuzz time + 10m), so there is no failing input; see the log for where it stalled." >> "$GITHUB_STEP_SUMMARY"
+          exit 0
+        fi
         {
           echo "**${{ matrix.target }} failed.** The failing input is in the \`fuzz-failure-${{ matrix.target }}\` artifact."
           echo "Copy it into \`testdata/fuzz/${{ matrix.target }}/\` and reproduce with:"
