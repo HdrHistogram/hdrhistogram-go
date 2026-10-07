@@ -438,6 +438,25 @@ func (h *Histogram) ValueAtQuantile(q float64) int64 {
 	return h.ValueAtPercentile(q)
 }
 
+// percentileRank returns a target in [1, totalCount] for a nonempty histogram.
+// Check the floating-point bounds before converting to int64: rounding can
+// exceed totalCount (issue #49), or even int64's range near MaxInt64. Comparing
+// against the rounded total also ensures P100 reaches the last observation
+// when float64(totalCount) rounds down. Empty histograms are handled by callers.
+func percentileRank(percentile float64, totalCount int64) int64 {
+	if percentile > 100 {
+		percentile = 100
+	}
+	rank := (percentile/100)*float64(totalCount) + 0.5
+	if !(rank >= 1) { // NaN, negative percentiles and ranks below the first sample
+		return 1
+	}
+	if rank >= float64(totalCount) {
+		return totalCount
+	}
+	return int64(rank)
+}
+
 // ValueAtPercentile returns the largest value that (100% - percentile) of the overall recorded value entries
 // in the histogram are either larger than or equivalent to.
 //
@@ -465,16 +484,7 @@ func (h *Histogram) ValueAtPercentile(percentile float64) int64 {
 		percentile = 0
 	}
 
-	countAtPercentile := int64(((percentile / 100) * float64(h.totalCount)) + 0.5)
-	// Reach at least the first recorded entry so low percentiles of a small
-	// histogram don't round the target to 0 and read an empty leading bucket below
-	// Min (and the 0th percentile is the recorded minimum). Matches the reference
-	// max(countAtPercentile, 1). An empty histogram is already handled above; on the
-	// off chance totalCount is 0 here, getValueFromIdxUpToCount(1) finds no crossing
-	// and returns 0, so this floor never changes the empty result.
-	if countAtPercentile < 1 {
-		countAtPercentile = 1
-	}
+	countAtPercentile := percentileRank(percentile, h.totalCount)
 	valueFromIdx := h.getValueFromIdxUpToCount(countAtPercentile)
 	if percentile == 0.0 {
 		return h.lowestEquivalentValue(valueFromIdx)
@@ -555,25 +565,16 @@ func (h *Histogram) ValueAtPercentiles(percentiles []float64) (values map[float6
 	values = make(map[float64]int64, totalQuantilesToCalculate)
 	countAtPercentiles := make([]int64, totalQuantilesToCalculate)
 	for i, percentile := range percentiles {
-		// Clamp to [0,100] for the target computation, but key the result map by the
+		// Clamp the target computation, but key the result map by the
 		// ORIGINAL percentile the caller passed. Mutating the loop variable before
 		// seeding the map produced a phantom key: ValueAtPercentiles([]float64{150})
 		// returned {100: 0, 150: <value>} because the seed used the clamped 100 while
 		// the scan below writes the original 150.
-		clamped := percentile
-		if clamped > 100 {
-			clamped = 100
-		} else if clamped < 0 {
-			clamped = 0
-		}
 		values[percentile] = 0
-		countAtPercentiles[i] = int64(((clamped / 100) * float64(h.totalCount)) + 0.5)
-		if countAtPercentiles[i] < 1 {
-			countAtPercentiles[i] = 1 // reach at least the first recorded entry
-		}
+		countAtPercentiles[i] = percentileRank(percentile, h.totalCount)
 	}
 
-	// No recorded values: every target count is 0; return the map of 0's (matches the
+	// No recorded values: return the map of 0's (matches the
 	// documented contract and the prior iterator behavior, whose limit==0 short-circuit
 	// left the zero-initialized values in place).
 	if h.totalCount == 0 {
@@ -624,15 +625,7 @@ func (h *Histogram) ValueAtPercentilesSlice(percentiles []float64) []int64 {
 
 	countAtPercentiles := make([]int64, n)
 	for i, percentile := range percentiles {
-		if percentile > 100 {
-			percentile = 100
-		} else if percentile < 0 {
-			percentile = 0
-		}
-		countAtPercentiles[i] = int64(((percentile / 100) * float64(h.totalCount)) + 0.5)
-		if countAtPercentiles[i] < 1 {
-			countAtPercentiles[i] = 1 // reach at least the first recorded entry
-		}
+		countAtPercentiles[i] = percentileRank(percentile, h.totalCount)
 	}
 	if h.totalCount == 0 {
 		return result // all zeros
