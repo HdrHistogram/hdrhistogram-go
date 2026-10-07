@@ -82,7 +82,9 @@ go mod edit -replace github.com/codahale/hdrhistogram=github.com/HdrHistogram/hd
 | 100 | 184 KB | ~0.8 KB |
 | 1,600 | 184 KB | ~10 KB |
 
-It uses the same bucket layout as `Histogram` and the same arguments to construct, and it encodes to the standard V2 compressed format. The bytes are identical to `Histogram.Encode`, so any HdrHistogram reader can decode it, and `DecodePacked` reads streams from any writer. The trade-off is recording speed: recording into an existing bucket is a binary search, and populating a new bucket is O(populated). Keep the dense `Histogram` for hot recording paths and for histograms where most buckets fill up.
+It uses the same bucket layout and constructor arguments as `Histogram`. `Encode` emits the standard V2 compressed format, with the same bytes as the dense encoder on equivalent data. `DecodePacked` accepts the supported V2 subset with `normalizingIndexOffset == 0`; shifted Java streams with nonzero offsets are rejected. Conversion-ratio metadata is discarded on decode and written as `1.0` on encode, so a foreign stream is not necessarily preserved verbatim. See the [C/Java compatibility guide](PACKED_COMPATIBILITY.md) for query, constructor and wire-format policies.
+
+The trade-off is recording speed: recording into an existing bucket is a binary search, and populating a new bucket is O(populated). Keep the dense `Histogram` for hot recording paths and for histograms where most buckets fill up. Do not copy an initialized `PackedHistogram` by value; synchronize all mutations against concurrent reads and writes.
 
 ```go
 h := hdrhistogram.NewPacked(1, 3600000000, 3)
@@ -96,7 +98,7 @@ For rolling windows, record into a dense histogram and keep the completed slices
 | Need | API |
 |---|---|
 | dense → packed | `MergeFrom(*Histogram)` |
-| packed → dense | `MergeInto(*Histogram)` (same result as `Histogram.Merge`) |
+| packed → dense | `MergeInto(*Histogram)` (dense parity when the source count sum fits in `int64`) |
 | packed → packed | `Merge(*PackedHistogram)` |
 | reuse a slot | `Reset()` keeps its storage; `Compact()` shrinks it back to fit |
 | visit populated buckets | `ForEachBucket` (also usable with `range`) |
@@ -116,7 +118,17 @@ for _, s := range ring {
 p99 := window.ValueAtQuantile(99)
 ```
 
-The merge methods return the count they had to drop (values out of the destination's range, or counts that would overflow a packed total). With the same bucket layout they work in proportion to the populated buckets and do not allocate. See [`ExamplePackedHistogram_MergeInto`](https://pkg.go.dev/github.com/HdrHistogram/hdrhistogram-go#example-PackedHistogram.MergeInto) for a complete ring.
+The merge methods return the count they had to drop (values out of the destination's range, or counts that would overflow a packed total). `MergeInto` does not check destination count overflow. Costs differ by operation:
+
+| Operation | Work and allocations |
+|---|---|
+| `MergeInto` | O(source populated buckets), with no allocations, including when geometries differ. |
+| `MergeFrom` | Scans the entire dense source counts array. Into an empty packed destination, buckets append in order; into a populated destination, insertions may shift existing entries. Growth in capacity or count width can allocate. Reusing sufficient capacity and width after `Reset` avoids allocation. |
+| `Merge` | With matching indexing, distinct histograms and totals safely below overflow, work is linear in both populated sizes. Capacity or count-width growth can allocate. Self-merges, differing geometry and possible total overflow use bucket-by-bucket insertion, which can be quadratic when entries must shift. |
+
+`Reset` retains capacity and count width; `Compact` releases spare capacity and can narrow counts, so later merges may allocate again. See [`ExamplePackedHistogram_MergeInto`](https://pkg.go.dev/github.com/HdrHistogram/hdrhistogram-go#example-PackedHistogram.MergeInto) for a complete ring.
+
+Packed histograms also support `Mean`, `StdDev`, `RecordCorrectedValue`, and geometry getters. Use `Clone` for an independent sparse copy that preserves exact geometry, counts and log metadata; `Clone` followed by `Reset` creates an empty sibling with the same geometry. Use `HistogramLogWriter.OutputIntervalPackedHistogram` (or its `WithLogOptions` variant) to write a packed interval directly without a dense conversion. See the [compatibility guide](PACKED_COMPATIBILITY.md) for copying and saturated-count limitations.
 
 ## Fuzzing
 -------
@@ -133,4 +145,3 @@ Locally, `make fuzz FUZZTIME=1m` fuzzes every target in turn. To reproduce a CI 
 -------
 
 Many thanks for Coda Hale for contributing the initial implementation and transfering the repository here.
-

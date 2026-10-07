@@ -1,26 +1,5 @@
 package hdrhistogram
 
-// PackedHistogram is a memory-optimised sparse variant of Histogram. Its backing
-// store grows with the number of POPULATED buckets, not with countsLen, so many
-// sparsely-populated histograms cost a fraction of the dense footprint while
-// keeping the same bucket geometry and value<->index mapping.
-//
-// It reuses the dense geometry helpers verbatim through a geometry-only
-// *Histogram oracle (its counts slice is nil and never indexed), exactly as the
-// C hdr_packed_histogram does with counts==NULL.
-//
-// Backing store: idx[] holds the populated flat counts[] indices in ascending
-// order; cnt is a byte blob holding one count per populated bucket at a uniform
-// adaptive width (1/2/4/8 bytes) that widens on overflow.
-//
-// COST MODEL: recording into an already-populated bucket is a binary search;
-// populating a new bucket also shifts the tail of idx/cnt, so it is O(populated).
-// Filling many distinct buckets is therefore quadratic in the populated count;
-// prefer the dense Histogram when most buckets will be populated.
-//
-// THREAD SAFETY: single-goroutine, like the dense Histogram. The read-only query
-// methods are safe to call concurrently only when no goroutine is recording.
-
 import (
 	"encoding/binary"
 	"fmt"
@@ -29,7 +8,32 @@ import (
 	"unsafe"
 )
 
-// PackedHistogram is the sparse variant. Create with NewPacked.
+// PackedHistogram is a memory-optimised sparse variant of Histogram. Create it
+// with NewPacked; the zero value is not ready for use. It keeps the same bucket
+// geometry as Histogram without allocating a dense counts array. Its storage
+// grows with the number of populated buckets, using sorted indexes and counts
+// of a uniform adaptive width (1, 2, 4 or 8 bytes).
+//
+// Recording into an existing bucket uses a binary search. Populating a new
+// bucket also shifts the following entries and costs O(populated buckets).
+// Filling many distinct buckets can therefore take quadratic time; prefer
+// Histogram for hot recording paths or when most buckets will be populated.
+//
+// A PackedHistogram must not be copied after initialization: a struct copy
+// shares backing arrays but has separate totals and other bookkeeping. Use Clone
+// for an independent copy preserving exact geometry, bucket counts (including
+// decoded distributions with saturated totals), and log metadata. Clone followed
+// by Reset makes an empty sibling with exactly the same geometry. Reconstructing
+// from geometry getters with NewPacked applies constructor normalization, which
+// cannot preserve decoded zero-digit precision. Encode followed by DecodePacked
+// also creates independent storage, but requires valid wire geometry, normalizes
+// conversion-ratio metadata to 1, and does not retain log metadata.
+//
+// PackedHistogram provides no internal synchronization. Concurrent read-only
+// calls are safe only while no goroutine mutates the histogram. Callers must
+// synchronize all mutation, including recording, Reset, Compact, merges and
+// metadata setters, against reads and other mutations. A merge also requires
+// its source to remain unchanged for the duration of the call.
 type PackedHistogram struct {
 	geom       *Histogram // geometry oracle; geom.counts is nil and never indexed
 	idx        []int32    // populated flat counts indices, ascending, len == size
