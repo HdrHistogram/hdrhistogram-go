@@ -106,8 +106,13 @@ func wireGeometry(lowestDiscernibleValue, highestTrackableValue int64, numberOfS
 	if numberOfSignificantValueDigits < 0 || numberOfSignificantValueDigits > 5 {
 		return nil, fmt.Errorf("significant digits must be between 0 and 5, got %d", numberOfSignificantValueDigits)
 	}
-	if lowestDiscernibleValue < 1 {
-		return nil, fmt.Errorf("lowest discernible value must be at least 1, got %d", lowestDiscernibleValue)
+	if lowestDiscernibleValue < 0 {
+		return nil, fmt.Errorf("lowest discernible value must not be negative, got %d", lowestDiscernibleValue)
+	}
+	if lowestDiscernibleValue == 0 {
+		// hdrhistogram-go v1.0.x wrote New(0, ...) as 0 on the wire. 0 and 1
+		// give the same geometry (unit magnitude 0), so read it as 1.
+		lowestDiscernibleValue = 1
 	}
 	sig := int(numberOfSignificantValueDigits)
 	unitMagnitude, subBucketHalfCountMagnitude := geometryMagnitudes(lowestDiscernibleValue, sig)
@@ -242,7 +247,8 @@ func (h *Histogram) getNormalizingIndexOffset() int32 {
 }
 
 // Merge merges the data stored in the given histogram with the receiver,
-// returning the number of recorded values which had to be dropped.
+// returning the number of recorded values which had to be dropped. The
+// dropped total saturates at math.MaxInt64 rather than wrapping.
 func (h *Histogram) Merge(from *Histogram) (dropped int64) {
 	i := from.rIterator()
 	for i.next() {
@@ -250,7 +256,7 @@ func (h *Histogram) Merge(from *Histogram) (dropped int64) {
 		c := i.countAtIdx
 
 		if h.RecordValues(v, c) != nil {
-			dropped += c
+			dropped = addDropped(dropped, c)
 		}
 	}
 
@@ -761,7 +767,19 @@ func (h *Histogram) Export() *Snapshot {
 
 // Import returns a new Histogram populated from the Snapshot data.
 func Import(s *Snapshot) *Histogram {
-	h := New(s.LowestTrackableValue, s.HighestTrackableValue, int(s.SignificantFigures))
+	// A snapshot's counts are indexed by its exact geometry. Decoded histograms
+	// can have 0 significant digits, which New would clamp to 1 and so remap
+	// every count; build the exact geometry whenever the snapshot's is valid.
+	var h *Histogram
+	if s.SignificantFigures >= 0 && s.SignificantFigures <= 5 {
+		if g, err := wireGeometry(s.LowestTrackableValue, s.HighestTrackableValue, int32(s.SignificantFigures)); err == nil {
+			g.counts = make([]int64, g.countsLen)
+			h = g
+		}
+	}
+	if h == nil {
+		h = New(s.LowestTrackableValue, s.HighestTrackableValue, int(s.SignificantFigures))
+	}
 	// Copy into the histogram's own counts[] (already sized to h.countsLen by New)
 	// rather than aliasing the caller's slice. copy handles a length mismatch
 	// gracefully: a longer Snapshot is truncated to the histogram geometry, and a

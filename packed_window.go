@@ -56,6 +56,9 @@ func sameIndexing(a, b *Histogram) bool {
 // same unit magnitude, floor(log2(lowestDiscernibleValue))), counts are added
 // index to index, with work proportional to the number of populated buckets.
 // Otherwise each bucket is re-recorded at its value. Neither path allocates.
+//
+// The returned dropped total saturates at math.MaxInt64 rather than wrapping
+// (a decoded source can hold buckets whose sum exceeds int64).
 func (p *PackedHistogram) MergeInto(dst *Histogram) (dropped int64) {
 	if sameIndexing(p.geom, dst) {
 		for i := int32(0); i < p.size; i++ {
@@ -95,6 +98,9 @@ func (p *PackedHistogram) MergeInto(dst *Histogram) (dropped int64) {
 //	slot.Reset()
 //	slot.MergeFrom(active)
 //	active.Reset()
+//
+// The returned dropped total saturates at math.MaxInt64 rather than wrapping
+// (a decoded source can hold buckets whose sum exceeds int64).
 func (p *PackedHistogram) MergeFrom(src *Histogram) (dropped int64) {
 	same := sameIndexing(p.geom, src)
 	for idx, c := range src.counts {
@@ -171,6 +177,9 @@ func putPackedCount(buf []byte, off int, w uint8, v int64) {
 // overflow, the two sorted bucket lists are merged in place from the end in
 // a single pass, linear in both sizes; it allocates only when p needs more
 // capacity. Otherwise each bucket is re-recorded at its value.
+//
+// The returned dropped total saturates at math.MaxInt64 rather than wrapping
+// (a decoded source can hold buckets whose sum exceeds int64).
 func (p *PackedHistogram) Merge(from *PackedHistogram) (dropped int64) {
 	if from.size == 0 {
 		return 0
