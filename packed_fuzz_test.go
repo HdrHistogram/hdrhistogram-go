@@ -458,6 +458,30 @@ func FuzzPackedDifferential(f *testing.F) {
 				if dropped := q.MergeFrom(d); dropped != 0 || !packedSameBuckets(p, q) || q.TotalCount() != p.TotalCount() {
 					t.Fatalf("MergeFrom(dense twin) differs: dropped %d, total %d vs %d", dropped, q.TotalCount(), p.TotalCount())
 				}
+				// MergeFrom into the fuzzed geometry must equal recording every
+				// dense bucket there (exercising the re-recording and drop paths).
+				mq, rq := NewPacked(dg.low, dg.high, int(dg.sig)), NewPacked(dg.low, dg.high, int(dg.sig))
+				var wantDropped int64
+				it := d.rIterator()
+				for it.next() {
+					if rq.RecordValues(it.valueFromIdx, it.countAtIdx) != nil {
+						wantDropped += it.countAtIdx
+					}
+				}
+				if dropped := mq.MergeFrom(d); dropped != wantDropped || !packedSameBuckets(mq, rq) || mq.TotalCount() != rq.TotalCount() {
+					t.Fatalf("MergeFrom into %v: dropped %d (want %d), total %d (want %d)", dg, dropped, wantDropped, mq.TotalCount(), rq.TotalCount())
+				}
+				// ForEachBucket must visit exactly the dense buckets, in order.
+				it = d.rIterator()
+				p.ForEachBucket(func(v, c int64) bool {
+					if !it.next() || v != it.valueFromIdx || c != it.countAtIdx {
+						t.Fatalf("ForEachBucket (%d,%d) differs from dense iteration", v, c)
+					}
+					return true
+				})
+				if it.next() {
+					t.Fatal("ForEachBucket stopped before dense iteration did")
+				}
 			}
 			if d.TotalCount() != p.TotalCount() {
 				t.Fatalf("total: dense %d, packed %d", d.TotalCount(), p.TotalCount())

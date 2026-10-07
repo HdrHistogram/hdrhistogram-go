@@ -128,6 +128,7 @@ func TestPackedMergeIntoMatchesDenseMerge(t *testing.T) {
 		{1, 100000, 3},     // same indexing, narrower range: drops
 		{1, 3600000000, 2}, // different indexing
 		{1000, 1 << 30, 4}, // different indexing and range
+		{1024, 1 << 40, 3}, // same digits, different unit magnitude
 	}
 	for trial := 0; trial < 20; trial++ {
 		src, p := fillBoth(r, windowGeoms[0], 1+r.Intn(3000))
@@ -218,5 +219,95 @@ func TestPackedWindowOpsDoNotAllocate(t *testing.T) {
 	slot.MergeFrom(src) // grow once
 	if a := testing.AllocsPerRun(20, func() { slot.Reset(); slot.MergeFrom(src) }); a != 0 {
 		t.Fatalf("Reset+MergeFrom into a warmed slot allocs = %v", a)
+	}
+}
+
+// MergeFrom between geometries that index the same way but where p has a
+// narrower range: buckets past p's counts, including the first index past the
+// end, are dropped and never stored.
+func TestPackedMergeFromSameIndexingNarrowerRange(t *testing.T) {
+	p := NewPacked(1, 100000, 3)
+	src := New(1, 1<<40, 3)
+	if !sameIndexing(p.geom, src) {
+		t.Fatal("setup: geometries should index the same way")
+	}
+	edge := src.valueFromFlatIndex(p.geom.countsLen) // first index p cannot hold
+	_ = src.RecordValues(10, 2)
+	_ = src.RecordValues(edge-1, 4) // last index p can hold
+	_ = src.RecordValues(edge, 5)
+	_ = src.RecordValues(1<<35, 7)
+	if d := p.MergeFrom(src); d != 12 {
+		t.Fatalf("dropped %d, want 12", d)
+	}
+	if msg := packedCheckState(p); msg != "" {
+		t.Fatal(msg)
+	}
+	if p.TotalCount() != 6 || p.CountAtValue(10) != 2 || p.CountAtValue(edge-1) != 4 {
+		t.Fatalf("total %d, counts %d/%d", p.TotalCount(), p.CountAtValue(10), p.CountAtValue(edge-1))
+	}
+}
+
+// Merging exactly the remaining headroom is allowed; one more is dropped.
+func TestPackedMergeFromOverflowBoundary(t *testing.T) {
+	p := NewPacked(1, 1000, 2)
+	_ = p.RecordValues(10, math.MaxInt64-5)
+	src := New(1, 1000, 2)
+	_ = src.RecordValues(20, 5)
+	if d := p.MergeFrom(src); d != 0 || p.TotalCount() != math.MaxInt64 {
+		t.Fatalf("exact headroom: dropped %d, total %d", d, p.TotalCount())
+	}
+	one := New(1, 1000, 2)
+	_ = one.RecordValues(30, 1)
+	if d := p.MergeFrom(one); d != 1 || p.TotalCount() != math.MaxInt64 {
+		t.Fatalf("past headroom: dropped %d, total %d", d, p.TotalCount())
+	}
+}
+
+// MergeInto adds without overflow checks, exactly as Histogram.Merge does.
+func TestPackedMergeIntoOverflowMatchesDenseMerge(t *testing.T) {
+	p := NewPacked(1, 1000, 2)
+	_ = p.RecordValues(10, 5)
+	src := New(1, 1000, 2)
+	_ = src.RecordValues(10, 5)
+	want, got := New(1, 1000, 2), New(1, 1000, 2)
+	_ = want.RecordValues(10, math.MaxInt64-1)
+	_ = got.RecordValues(10, math.MaxInt64-1)
+	want.Merge(src)
+	p.MergeInto(got)
+	countsEqual(t, "overflowing merge", want, got)
+}
+
+// Dropping buckets on the re-recording path must not allocate either.
+func TestPackedCrossGeometryDropsDoNotAllocate(t *testing.T) {
+	src := New(1, 1<<40, 3)
+	for v := int64(1); v < 1<<40; v = v*3/2 + 1 {
+		_ = src.RecordValue(v)
+	}
+	slot := NewPacked(1, 1000000, 2) // different indexing, narrower range
+	if d := slot.MergeFrom(src); d == 0 {
+		t.Fatal("setup: expected dropped buckets")
+	}
+	if a := testing.AllocsPerRun(20, func() { slot.Reset(); slot.MergeFrom(src) }); a != 0 {
+		t.Fatalf("Reset+MergeFrom with drops allocs = %v", a)
+	}
+	_, p := fillBoth(rand.New(rand.NewSource(7)), windowGeoms[0], 2000)
+	_ = p.RecordValues(3000000000, 1) // beyond the destination below
+	dst := New(1, 1000000, 2)
+	if a := testing.AllocsPerRun(20, func() { p.MergeInto(dst) }); a != 0 {
+		t.Fatalf("MergeInto with drops allocs = %v", a)
+	}
+}
+
+// Widening the count width keeps the capacity Reset retained.
+func TestPackedWidenKeepsCapacity(t *testing.T) {
+	p := NewPacked(1, 1000000, 2)
+	for v := int64(1); v <= 2000; v++ {
+		_ = p.RecordValue(v)
+	}
+	slots := cap(p.cnt) / p.CountWidth()
+	p.Reset()
+	_ = p.RecordValues(5, 1<<40) // widen straight to 8 bytes
+	if got := cap(p.cnt) / p.CountWidth(); got < slots {
+		t.Fatalf("slot capacity %d after widening, had %d", got, slots)
 	}
 }
