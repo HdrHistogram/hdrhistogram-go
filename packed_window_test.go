@@ -311,3 +311,191 @@ func TestPackedWidenKeepsCapacity(t *testing.T) {
 		t.Fatalf("slot capacity %d after widening, had %d", got, slots)
 	}
 }
+
+func TestPackedMergeMatchesRecording(t *testing.T) {
+	r := rand.New(rand.NewSource(8))
+	geoms := append([]windowGeom{{1, 100000, 3}, {1024, 1 << 40, 3}}, windowGeoms...)
+	for trial := 0; trial < 30; trial++ {
+		for _, pg := range geoms {
+			for _, fg := range geoms {
+				_, p := fillBoth(r, pg, r.Intn(1500))
+				_, from := fillBoth(r, fg, r.Intn(1500))
+				if trial%3 == 0 {
+					p.Reset() // empty destination
+				}
+				ref, wantDropped := referenceMerge(p, from)
+				fromTotal := from.TotalCount()
+				if d := p.Merge(from); d != wantDropped {
+					t.Fatalf("%v <- %v: dropped %d, want %d", pg, fg, d, wantDropped)
+				}
+				if msg := packedCheckState(p); msg != "" {
+					t.Fatalf("%v <- %v: %s", pg, fg, msg)
+				}
+				if !packedSameBuckets(p, ref) || p.TotalCount() != ref.TotalCount() {
+					t.Fatalf("%v <- %v: buckets or total differ from recording", pg, fg)
+				}
+				if from.TotalCount() != fromTotal {
+					t.Fatal("Merge modified its source")
+				}
+			}
+		}
+	}
+}
+
+func TestPackedMergeSelfDoublesCounts(t *testing.T) {
+	_, p := fillBoth(rand.New(rand.NewSource(9)), windowGeoms[0], 2000)
+	_ = p.RecordValues(7, 200) // so doubling widens past one byte
+	ref, wantDropped := referenceMerge(p, p)
+	if d := p.Merge(p); d != wantDropped || !packedSameBuckets(p, ref) || p.TotalCount() != ref.TotalCount() {
+		t.Fatalf("self merge: dropped %d (want %d), total %d (want %d)", d, wantDropped, p.TotalCount(), ref.TotalCount())
+	}
+	if msg := packedCheckState(p); msg != "" {
+		t.Fatal(msg)
+	}
+}
+
+// Near MaxInt64 the merge must take the per-bucket path and drop exactly the
+// counts that would overflow, as recording does.
+func TestPackedMergeTotalOverflow(t *testing.T) {
+	p := NewPacked(1, 1000, 2)
+	_ = p.RecordValues(10, math.MaxInt64-10)
+	from := NewPacked(1, 1000, 2)
+	_ = from.RecordValues(20, 4)
+	_ = from.RecordValues(30, 9)
+	_ = from.RecordValues(40, 6)
+	ref, wantDropped := referenceMerge(p, from)
+	if d := p.Merge(from); d != wantDropped || d != 9 || !packedSameBuckets(p, ref) || p.TotalCount() != math.MaxInt64 {
+		t.Fatalf("dropped %d (want %d, 9), total %d", d, wantDropped, p.TotalCount())
+	}
+}
+
+// A decoded histogram whose total saturated must not take the fast path.
+func TestPackedMergeSaturatedSource(t *testing.T) {
+	payload := []byte{0xfe, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0x02} // MaxInt64, then 1
+	from, err := DecodePacked(buildPackedV2Stream(1, 3600000000, 3, int32(len(payload)), 0, 0, payload))
+	if err != nil || from.TotalCount() != math.MaxInt64 {
+		t.Fatalf("setup: %v, total %d", err, from.TotalCount())
+	}
+	p := NewPacked(1, 3600000000, 3)
+	ref, wantDropped := referenceMerge(p, from)
+	if d := p.Merge(from); d != wantDropped || !packedSameBuckets(p, ref) || p.TotalCount() != ref.TotalCount() {
+		t.Fatalf("dropped %d (want %d), total %d (want %d)", d, wantDropped, p.TotalCount(), ref.TotalCount())
+	}
+}
+
+func TestPackedMergeIntoWarmedSlotDoesNotAllocate(t *testing.T) {
+	r := rand.New(rand.NewSource(10))
+	_, a := fillBoth(r, windowGeoms[0], 2000)
+	_, b := fillBoth(r, windowGeoms[0], 2000)
+	slot := NewPacked(1, 3600000000, 3)
+	slot.Merge(a)
+	slot.Merge(b) // grow once
+	if n := testing.AllocsPerRun(20, func() { slot.Reset(); slot.Merge(a); slot.Merge(b) }); n != 0 {
+		t.Fatalf("Reset+Merge+Merge into a warmed slot allocs = %v", n)
+	}
+}
+
+func TestPackedCompact(t *testing.T) {
+	r := rand.New(rand.NewSource(11))
+	_, p := fillBoth(r, windowGeoms[0], 3000)
+	_ = p.RecordValues(5, 1<<40) // widen to 8 bytes
+	enc, _ := p.Encode()
+	p99 := p.ValueAtPercentile(99)
+
+	// Compacting a populated histogram keeps its contents exactly.
+	p.Compact()
+	if p.CountWidth() != 8 || cap(p.idx) != int(p.size) || cap(p.cnt) != len(p.cnt) {
+		t.Fatalf("compact populated: width %d, caps %d/%d for %d buckets", p.CountWidth(), cap(p.idx), cap(p.cnt), p.size)
+	}
+	if again, _ := p.Encode(); string(again) != string(enc) || p.ValueAtPercentile(99) != p99 {
+		t.Fatal("Compact changed the histogram's contents")
+	}
+	// Dropping the big count lets Compact narrow the width.
+	q := NewPacked(1, 3600000000, 3)
+	p.ForEachBucket(func(v, c int64) bool {
+		if c < 1<<20 {
+			_ = q.RecordValues(v, c)
+		}
+		return true
+	})
+	q.Compact()
+	if q.CountWidth() != 4 {
+		t.Fatalf("width %d, want 4 for counts below 2^20 after compacting", q.CountWidth())
+	}
+
+	// A slot left wide by Reset narrows to what its new counts need.
+	wide := NewPacked(1, 3600000000, 3)
+	_ = wide.RecordValues(5, 1<<40) // 8-byte counts
+	wide.Reset()
+	for v := int64(1); v <= 500; v++ {
+		_ = wide.RecordValues(v, 300) // fits 2 bytes
+	}
+	if wide.CountWidth() != 8 {
+		t.Fatalf("setup: width %d, want 8 retained by Reset", wide.CountWidth())
+	}
+	wenc, _ := wide.Encode()
+	wide.Compact()
+	if wide.CountWidth() != 2 {
+		t.Fatalf("Compact left width %d, want 2", wide.CountWidth())
+	}
+	if after, _ := wide.Encode(); string(after) != string(wenc) {
+		t.Fatal("narrowing changed the contents")
+	}
+
+	// After Reset, Compact returns to the footprint of a new histogram.
+	p.Reset()
+	p.Compact()
+	fresh := NewPacked(1, 3600000000, 3)
+	if p.CountWidth() != 1 || p.GetMemorySize() != fresh.GetMemorySize() {
+		t.Fatalf("after Reset+Compact: width %d, size %d, fresh %d", p.CountWidth(), p.GetMemorySize(), fresh.GetMemorySize())
+	}
+	// And it is fully usable again.
+	d, again := fillBoth(rand.New(rand.NewSource(12)), windowGeoms[0], 1000)
+	p.Merge(again)
+	back := New(1, 3600000000, 3)
+	p.MergeInto(back)
+	countsEqual(t, "reused after Compact", d, back)
+}
+
+// Merge between same-indexing geometries where p's range is narrower: the
+// last index p holds is merged and the first index past it is dropped.
+func TestPackedMergeSameIndexingNarrowerRange(t *testing.T) {
+	p := NewPacked(1, 100000, 3)
+	from := NewPacked(1, 1<<40, 3)
+	if !sameIndexing(p.geom, from.geom) {
+		t.Fatal("setup: geometries should index the same way")
+	}
+	edge := from.geom.valueFromFlatIndex(p.geom.countsLen) // first index p cannot hold
+	_ = p.RecordValues(10, 1)
+	_ = from.RecordValues(10, 2)
+	_ = from.RecordValues(edge-1, 4)
+	_ = from.RecordValues(edge, 5)
+	_ = from.RecordValues(1<<35, 7)
+	if d := p.Merge(from); d != 12 {
+		t.Fatalf("dropped %d, want 12", d)
+	}
+	if msg := packedCheckState(p); msg != "" {
+		t.Fatal(msg)
+	}
+	if p.TotalCount() != 7 || p.CountAtValue(10) != 3 || p.CountAtValue(edge-1) != 4 {
+		t.Fatalf("total %d, counts %d/%d", p.TotalCount(), p.CountAtValue(10), p.CountAtValue(edge-1))
+	}
+}
+
+// Compact picks the narrowest width exactly at each width's maximum count.
+func TestPackedCompactWidthBoundaries(t *testing.T) {
+	for _, tc := range []struct {
+		largest int64
+		width   int
+	}{{255, 1}, {256, 2}, {65535, 2}, {65536, 4}, {1<<32 - 1, 4}, {1 << 32, 8}} {
+		p := NewPacked(1, 1000, 2)
+		_ = p.RecordValues(10, 1<<40) // 8-byte counts
+		p.Reset()
+		_ = p.RecordValues(20, 3)
+		_ = p.RecordValues(30, tc.largest)
+		p.Compact()
+		if p.CountWidth() != tc.width || p.CountAtValue(30) != tc.largest || p.CountAtValue(20) != 3 {
+			t.Fatalf("largest %d: width %d (want %d), counts %d/%d", tc.largest, p.CountWidth(), tc.width, p.CountAtValue(20), p.CountAtValue(30))
+		}
+	}
+}

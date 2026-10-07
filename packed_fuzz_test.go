@@ -104,6 +104,26 @@ func packedCheckState(p *PackedHistogram) string {
 	return ""
 }
 
+// referenceMerge records every bucket of from into a copy-equivalent of p,
+// in value order, which is what Merge must match.
+func referenceMerge(p, from *PackedHistogram) (*PackedHistogram, int64) {
+	ref := NewPacked(p.geom.lowestDiscernibleValue, p.geom.highestTrackableValue, int(p.geom.significantFigures))
+	p.ForEachBucket(func(v, c int64) bool {
+		if ref.RecordValues(v, c) != nil {
+			panic("reference: cannot copy p")
+		}
+		return true
+	})
+	var dropped int64
+	from.ForEachBucket(func(v, c int64) bool {
+		if ref.RecordValues(v, c) != nil {
+			dropped += c
+		}
+		return true
+	})
+	return ref, dropped
+}
+
 // packedSameBuckets reports whether two packed histograms hold the same
 // populated buckets and counts.
 func packedSameBuckets(a, b *PackedHistogram) bool {
@@ -284,7 +304,8 @@ func packedFuzzValue(raw uint64, g packedFuzzGeom, topEnd int64) int64 {
 // the other type. Each operation is 17 bytes: an opcode, a value word and an
 // argument word. Opcodes: 0 record, 1 record a small count, 2 record a large
 // or width-edge count, 3 query, 4 encode and cross-decode, 5 min/max, 6 record
-// a run of distinct buckets, 7 reset, 8 merge (MergeInto and MergeFrom).
+// a run of distinct buckets, 7 reset (and maybe compact), 8 merges (MergeInto,
+// MergeFrom, ForEachBucket and packed Merge), 9 compact.
 func FuzzPackedDifferential(f *testing.F) {
 	op := func(code byte, v, arg uint64) []byte {
 		b := []byte{code}
@@ -369,7 +390,7 @@ func FuzzPackedDifferential(f *testing.F) {
 		const maxOps, maxRoundTrips = 256, 4
 		roundTrips := 0
 		for nops := 0; len(ops) >= 17 && nops < maxOps; nops++ {
-			code := ops[0] % 9
+			code := ops[0] % 10
 			v := packedFuzzValue(binary.BigEndian.Uint64(ops[1:]), g, topEnd)
 			arg := binary.BigEndian.Uint64(ops[9:])
 			ops = ops[17:]
@@ -439,6 +460,18 @@ func FuzzPackedDifferential(f *testing.F) {
 			case 7: // reset both, as a rolling-window slot would be reused
 				d.Reset()
 				p.Reset()
+				if arg&1 == 1 {
+					p.Compact()
+				}
+			case 9: // Compact must not change the contents
+				before, _ := p.Encode()
+				p.Compact()
+				if after, _ := p.Encode(); !bytes.Equal(before, after) {
+					t.Fatal("Compact changed the encoding")
+				}
+				if msg := packedCheckState(p); msg != "" {
+					t.Fatalf("after Compact: %s", msg)
+				}
 			case 8: // merges: MergeInto must equal dense Merge; MergeFrom must rebuild p
 				dg := packedDiffGeoms[int(arg%uint64(len(packedDiffGeoms)))]
 				want := New(dg.low, dg.high, int(dg.sig))
@@ -481,6 +514,31 @@ func FuzzPackedDifferential(f *testing.F) {
 				})
 				if it.next() {
 					t.Fatal("ForEachBucket stopped before dense iteration did")
+				}
+				// Packed-to-packed Merge must equal recording. Destinations: an
+				// empty histogram, one holding every other bucket of the source
+				// (so the fast path both inserts new buckets and adds to existing
+				// ones), and one holding all of them; sources: p and mq.
+				for _, src := range []*PackedHistogram{p, mq} {
+					empty := NewPacked(dg.low, dg.high, int(dg.sig))
+					half := NewPacked(dg.low, dg.high, int(dg.sig))
+					k := 0
+					mq.ForEachBucket(func(v, c int64) bool {
+						if k%2 == 0 {
+							_ = half.RecordValues(v, c)
+						}
+						k++
+						return true
+					})
+					for _, dst := range []*PackedHistogram{empty, half, rq} {
+						ref, wantDropped := referenceMerge(dst, src)
+						if dropped := dst.Merge(src); dropped != wantDropped || !packedSameBuckets(dst, ref) || dst.TotalCount() != ref.TotalCount() {
+							t.Fatalf("Merge into %v: dropped %d (want %d), total %d (want %d)", dg, dropped, wantDropped, dst.TotalCount(), ref.TotalCount())
+						}
+						if msg := packedCheckState(dst); msg != "" {
+							t.Fatalf("after Merge: %s", msg)
+						}
+					}
 				}
 			}
 			if d.TotalCount() != p.TotalCount() {
