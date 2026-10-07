@@ -28,7 +28,6 @@ if [ ! -d "$corpus" ] || [ -z "$(ls -A "$corpus")" ]; then
 	exit 0
 fi
 
-work=$(mktemp -d)
 seeds="testdata/fuzz/$target"
 if [ -e "$seeds" ]; then
 	# Go parses every testdata entry of a target even when -run selects one, so
@@ -36,6 +35,7 @@ if [ -e "$seeds" ]; then
 	echo "$seeds already exists; refusing to modify checked-in seeds" >&2
 	exit 2
 fi
+work=$(mktemp -d)
 cleanup() {
 	rm -rf "$seeds" "$work"
 	rmdir testdata/fuzz testdata 2>/dev/null || true
@@ -51,10 +51,10 @@ for path in "$corpus"/*; do
 	name=$(basename "$path")
 	total=$((total + 1))
 	cp "$path" "$seeds/$name"
-	if ! "$work/fuzz.test" -test.run="^${target}\$/^${name}\$" -test.count=1 \
+	if ! "$work/fuzz.test" -test.run="^${target}\$/^${name}\$" -test.count=1 -test.timeout=60s \
 		-test.coverprofile="$work/cov/$name" >"$work/out" 2>&1; then
 		rm -f "$work/cov/$name"
-		if grep -q 'in corpus entry' "$work/out"; then
+		if grep -F "$name" "$work/out" | grep -q 'in corpus entry'; then
 			# Written for an older signature of the target: the fuzzer skips it.
 			echo "remove (stale format): $name"
 			rm -f "$path"
