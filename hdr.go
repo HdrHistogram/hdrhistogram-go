@@ -89,34 +89,13 @@ func New(lowestDiscernibleValue, highestTrackableValue int64, numberOfSignifican
 // newGeometry computes the bucket geometry of a Histogram without allocating
 // its counts array. PackedHistogram uses it as a geometry-only oracle.
 func newGeometry(lowestDiscernibleValue, highestTrackableValue int64, numberOfSignificantValueDigits int) *Histogram {
-	if numberOfSignificantValueDigits < 1 {
-		numberOfSignificantValueDigits = 1
-	} else if numberOfSignificantValueDigits > 5 {
-		numberOfSignificantValueDigits = 5
+	if err := checkGeometry(lowestDiscernibleValue, numberOfSignificantValueDigits); err != nil {
+		// New has no error return; panicking is better than the infinite loop the
+		// overflowing bucket computation would otherwise enter.
+		panic("hdrhistogram: " + err.Error())
 	}
-	if lowestDiscernibleValue < 1 {
-		lowestDiscernibleValue = 1
-	}
-
-	// Given a 3 decimal point accuracy, the expectation is obviously for "+/- 1 unit at 1000". It also means that
-	// it's "ok to be +/- 2 units at 2000". The "tricky" thing is that it is NOT ok to be +/- 2 units at 1999. Only
-	// starting at 2000. So internally, we need to maintain single unit resolution to 2x 10^decimalPoints.
-	largestValueWithSingleUnitResolution := 2 * math.Pow10(numberOfSignificantValueDigits)
-
-	// We need to maintain power-of-two subBucketCount (for clean direct indexing) that is large enough to
-	// provide unit resolution to at least largestValueWithSingleUnitResolution. So figure out
-	// largestValueWithSingleUnitResolution's nearest power-of-two (rounded up), and use that:
-	subBucketCountMagnitude := int32(math.Ceil(math.Log2(float64(largestValueWithSingleUnitResolution))))
-	subBucketHalfCountMagnitude := subBucketCountMagnitude
-	if subBucketHalfCountMagnitude < 1 {
-		subBucketHalfCountMagnitude = 1
-	}
-	subBucketHalfCountMagnitude--
-
-	unitMagnitude := int32(math.Floor(math.Log2(float64(lowestDiscernibleValue))))
-	if unitMagnitude < 0 {
-		unitMagnitude = 0
-	}
+	lowestDiscernibleValue, numberOfSignificantValueDigits = clampGeometryArgs(lowestDiscernibleValue, numberOfSignificantValueDigits)
+	unitMagnitude, subBucketHalfCountMagnitude := geometryMagnitudes(lowestDiscernibleValue, numberOfSignificantValueDigits)
 
 	subBucketCount := int32(math.Pow(2, float64(subBucketHalfCountMagnitude)+1))
 
@@ -147,6 +126,59 @@ func newGeometry(lowestDiscernibleValue, highestTrackableValue int64, numberOfSi
 		endTimeMs:                   0,
 		tag:                         "",
 	}
+}
+
+// clampGeometryArgs applies the argument clamping New documents: significant
+// digits to [1, 5] and lowestDiscernibleValue to at least 1.
+func clampGeometryArgs(lowestDiscernibleValue int64, numberOfSignificantValueDigits int) (int64, int) {
+	if numberOfSignificantValueDigits < 1 {
+		numberOfSignificantValueDigits = 1
+	} else if numberOfSignificantValueDigits > 5 {
+		numberOfSignificantValueDigits = 5
+	}
+	if lowestDiscernibleValue < 1 {
+		lowestDiscernibleValue = 1
+	}
+	return lowestDiscernibleValue, numberOfSignificantValueDigits
+}
+
+// geometryMagnitudes returns the unit and half-sub-bucket-count magnitudes for
+// already clamped arguments.
+func geometryMagnitudes(lowestDiscernibleValue int64, numberOfSignificantValueDigits int) (unitMagnitude, subBucketHalfCountMagnitude int32) {
+	// Given a 3 decimal point accuracy, the expectation is obviously for "+/- 1 unit at 1000". It also means that
+	// it's "ok to be +/- 2 units at 2000". The "tricky" thing is that it is NOT ok to be +/- 2 units at 1999. Only
+	// starting at 2000. So internally, we need to maintain single unit resolution to 2x 10^decimalPoints.
+	largestValueWithSingleUnitResolution := 2 * math.Pow10(numberOfSignificantValueDigits)
+
+	// We need to maintain power-of-two subBucketCount (for clean direct indexing) that is large enough to
+	// provide unit resolution to at least largestValueWithSingleUnitResolution. So figure out
+	// largestValueWithSingleUnitResolution's nearest power-of-two (rounded up), and use that:
+	subBucketCountMagnitude := int32(math.Ceil(math.Log2(float64(largestValueWithSingleUnitResolution))))
+	subBucketHalfCountMagnitude = subBucketCountMagnitude
+	if subBucketHalfCountMagnitude < 1 {
+		subBucketHalfCountMagnitude = 1
+	}
+	subBucketHalfCountMagnitude--
+
+	unitMagnitude = int32(math.Floor(math.Log2(float64(lowestDiscernibleValue))))
+	if unitMagnitude < 0 {
+		unitMagnitude = 0
+	}
+	return unitMagnitude, subBucketHalfCountMagnitude
+}
+
+// checkGeometry reports whether a histogram with these arguments can be
+// represented in 64 bits. As in the Java implementation, it rejects
+// unitMagnitude + subBucketHalfCountMagnitude > 61: beyond that, the smallest
+// untrackable value (subBucketCount << unitMagnitude) overflows int64 and the
+// bucket computation never terminates.
+func checkGeometry(lowestDiscernibleValue int64, numberOfSignificantValueDigits int) error {
+	low, sig := clampGeometryArgs(lowestDiscernibleValue, numberOfSignificantValueDigits)
+	unitMagnitude, subBucketHalfCountMagnitude := geometryMagnitudes(low, sig)
+	if unitMagnitude+subBucketHalfCountMagnitude > 61 {
+		return fmt.Errorf("lowestDiscernibleValue %d is too large for %d significant digits", lowestDiscernibleValue, sig)
+	}
+	return nil
 }
 
 func getBucketsNeededToCoverValue(smallestUntrackableValue int64, maxValue int64) int32 {

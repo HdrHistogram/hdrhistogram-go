@@ -185,18 +185,18 @@ func decodeCompressedFormat(compressedContents []byte, headerSize int) (rh *Hist
 			err = closeErr
 		}
 	}()
-	decompressedSlice, err := io.ReadAll(z)
-	if err != nil {
-		return
+	// Read the fixed-size header first, so the geometry is validated and the
+	// inflated payload bounded before anything else is read. This bounds
+	// decompression, not the counts array: a valid header for a wide geometry
+	// (e.g. 1..MaxInt64 at 5 digits) still allocates countsLen*8 bytes.
+	header := make([]byte, headerSize)
+	if n, rerr := io.ReadFull(z, header); rerr != nil {
+		if rerr != io.EOF && rerr != io.ErrUnexpectedEOF {
+			return nil, rerr
+		}
+		return nil, fmt.Errorf("decompressed histogram truncated: got %d bytes, need at least %d", n, headerSize)
 	}
-	decompressedSliceLen := int32(len(decompressedSlice))
-	// The fixed-size header must be fully present before it is sliced/parsed,
-	// otherwise a stream decompressing to fewer than headerSize bytes would panic.
-	if len(decompressedSlice) < headerSize {
-		err = fmt.Errorf("decompressed histogram truncated: got %d bytes, need at least %d", len(decompressedSlice), headerSize)
-		return
-	}
-	cookie, PayloadLength, _, NumberOfSignificantValueDigits, LowestTrackableValue, HighestTrackableValue, _, err := decodeDeCompressedHeaderFormat(decompressedSlice[0:headerSize])
+	cookie, PayloadLength, _, NumberOfSignificantValueDigits, LowestTrackableValue, HighestTrackableValue, _, err := decodeDeCompressedHeaderFormat(header)
 	if err != nil {
 		return
 	}
@@ -204,13 +204,29 @@ func decodeCompressedFormat(compressedContents []byte, headerSize int) (rh *Hist
 		err = fmt.Errorf("encoding not supported, only V2 is supported. got %d want %d", cookie, V2EncodingCookieBase)
 		return
 	}
-	actualPayloadLen := decompressedSliceLen - int32(headerSize)
-	if PayloadLength != actualPayloadLen {
-		err = fmt.Errorf("PayloadLength should have the same size of the actual payload. got %d want %d", actualPayloadLen, PayloadLength)
-		return
+	if PayloadLength < 0 {
+		return nil, fmt.Errorf("negative PayloadLength: %d", PayloadLength)
 	}
-	rh = New(LowestTrackableValue, HighestTrackableValue, int(NumberOfSignificantValueDigits))
-	payload := decompressedSlice[headerSize:]
+	if err = checkGeometry(LowestTrackableValue, int(NumberOfSignificantValueDigits)); err != nil {
+		return nil, fmt.Errorf("corrupt histogram header: %v", err)
+	}
+	geometry := newGeometry(LowestTrackableValue, HighestTrackableValue, int(NumberOfSignificantValueDigits))
+	// A valid payload holds at most one zig-zag LEB128 varint (<= 9 bytes) per
+	// counts index.
+	if maxPayload := int64(geometry.countsLen) * 9; int64(PayloadLength) > maxPayload {
+		return nil, fmt.Errorf("PayloadLength %d exceeds the maximum %d for countsLen %d", PayloadLength, maxPayload, geometry.countsLen)
+	}
+	// Read one byte past PayloadLength so trailing data is detected without
+	// inflating it; reaching EOF here also verifies the zlib checksum.
+	payload, err := io.ReadAll(io.LimitReader(z, int64(PayloadLength)+1))
+	if err != nil {
+		return nil, err
+	}
+	if int64(len(payload)) != int64(PayloadLength) {
+		return nil, fmt.Errorf("PayloadLength should have the same size of the actual payload. got %d want %d", len(payload), PayloadLength)
+	}
+	geometry.counts = make([]int64, geometry.countsLen)
+	rh = geometry
 	err = fillCountsArrayFromSourceBuffer(payload, rh)
 	return rh, err
 }
@@ -232,7 +248,8 @@ func fillCountsArrayFromSourceBuffer(payload []byte, rh *Histogram) (err error) 
 			// array; a corrupt payload could otherwise push it out of range before
 			// the next positive write.
 			zerosCount = -count
-			if zerosCount > int64(len(rh.counts))-dstIndex {
+			// zerosCount <= 0 only when count == MinInt64, whose negation overflows.
+			if zerosCount <= 0 || zerosCount > int64(len(rh.counts))-dstIndex {
 				return fmt.Errorf("corrupt histogram payload: zero-run of %d at index %d overflows counts array of length %d", zerosCount, dstIndex, len(rh.counts))
 			}
 			dstIndex += zerosCount
