@@ -7,9 +7,9 @@ import (
 	"testing"
 )
 
-// FuzzDecode asserts the public Decode never panics on arbitrary bytes, and that
+// FuzzDecodeRoundTrip asserts the public Decode never panics on arbitrary bytes, and that
 // any histogram it does accept re-round-trips stably (TotalCount preserved).
-func FuzzDecode(f *testing.F) {
+func FuzzDecodeRoundTrip(f *testing.F) {
 	f.Add([]byte(""))
 	f.Add([]byte("QUJD")) // "ABC" -> 3 bytes
 	f.Add([]byte("not base64 @@@"))

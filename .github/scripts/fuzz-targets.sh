@@ -6,7 +6,8 @@
 #   fuzz-targets.sh --json        a JSON array, for a GitHub Actions matrix
 #   fuzz-targets.sh --check-cflite
 #                                 fail if a target is not registered in
-#                                 .clusterfuzzlite/build.sh
+#                                 .clusterfuzzlite/build.sh, or if
+#                                 ClusterFuzzLite cannot locate it
 set -euo pipefail
 cd "$(dirname "$0")/../.."
 
@@ -29,6 +30,14 @@ case "${1:-}" in
 	for t in $targets; do
 		if ! grep -Eq "compile_native_go_fuzzer .* $t " .clusterfuzzlite/build.sh; then
 			echo "::error file=.clusterfuzzlite/build.sh::fuzz target $t is not registered with compile_native_go_fuzzer"
+			missing=1
+		fi
+		# compile_native_go_fuzzer locates a target by substring and needs exactly
+		# one "func <name>" line mentioning testing.F; otherwise it prints "Could
+		# not find the function" and silently skips the target. So no target name
+		# may be a prefix of another function taking *testing.F.
+		if [ "$(grep -rh --include='*.go' "func $t" . | grep -c 'testing.F')" -ne 1 ]; then
+			echo "::error::fuzz target $t is ambiguous for ClusterFuzzLite: another testing.F function name starts with it; rename one of them"
 			missing=1
 		fi
 	done

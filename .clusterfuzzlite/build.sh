@@ -14,7 +14,7 @@ go install github.com/AdamKorcz/go-118-fuzz-build@latest
 go get github.com/AdamKorcz/go-118-fuzz-build/testing
 
 # Build one libFuzzer harness per native Go fuzz target.
-compile_native_go_fuzzer $(go list ./...) FuzzDecode fuzz_decode
+compile_native_go_fuzzer $(go list ./...) FuzzDecodeRoundTrip fuzz_decode_round_trip
 compile_native_go_fuzzer $(go list ./...) FuzzLogReader fuzz_log_reader
 compile_native_go_fuzzer $(go list ./...) FuzzRecordEncodeDecode fuzz_record_encode_decode
 compile_native_go_fuzzer $(go list ./...) FuzzZigZagRoundTrip fuzz_zigzag_round_trip
