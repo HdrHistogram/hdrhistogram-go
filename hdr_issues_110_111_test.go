@@ -160,3 +160,18 @@ func TestSnapshotValidate(t *testing.T) {
 		t.Fatalf("trailing zeros: %v", err)
 	}
 }
+
+// Import has no error return: for geometry New cannot represent it panics as
+// New does, which Validate reports as an error first.
+func TestImportUnrepresentableGeometryPanicsAfterValidateRejects(t *testing.T) {
+	s := &Snapshot{LowestTrackableValue: 1 << 61, HighestTrackableValue: math.MaxInt64, SignificantFigures: 3}
+	if err := s.Validate(); err == nil || !strings.Contains(err.Error(), "too large") {
+		t.Fatalf("Validate: %v", err)
+	}
+	defer func() {
+		if r := recover(); r == nil {
+			t.Fatal("Import of unrepresentable geometry did not panic")
+		}
+	}()
+	Import(s)
+}

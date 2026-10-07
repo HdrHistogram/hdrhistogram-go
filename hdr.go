@@ -822,12 +822,14 @@ func (s *Snapshot) Validate() error {
 	return nil
 }
 
-// Import returns a new Histogram populated from the Snapshot data. It never
-// fails; use Snapshot.Validate first for snapshots that may be invalid. For a
-// snapshot that passes Validate, the histogram's total equals the sum of its
-// counts. Otherwise: negative counts are imported as zero (the total has
-// always excluded them), counts beyond the geometry's range are dropped, and
-// counts summing past math.MaxInt64 wrap the total.
+// Import returns a new Histogram populated from the Snapshot data. It returns
+// no error, so call Snapshot.Validate first for snapshots that may be invalid.
+// For a snapshot that passes Validate, the histogram's total equals the sum of
+// its counts. Otherwise: significant figures outside 0-5 are clamped as New
+// clamps them, geometry New cannot represent panics as New does, negative
+// counts are imported as zero (the total has always excluded them), counts
+// beyond the geometry's range are dropped, and counts summing past
+// math.MaxInt64 wrap the total.
 func Import(s *Snapshot) *Histogram {
 	// A snapshot's counts are indexed by its exact geometry. Decoded histograms
 	// can have 0 significant digits, which New would clamp to 1 and so remap
