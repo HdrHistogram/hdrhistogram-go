@@ -423,6 +423,25 @@ func TestPackedCompact(t *testing.T) {
 		t.Fatalf("width %d, want 4 for counts below 2^20 after compacting", q.CountWidth())
 	}
 
+	// A slot left wide by Reset narrows to what its new counts need.
+	wide := NewPacked(1, 3600000000, 3)
+	_ = wide.RecordValues(5, 1<<40) // 8-byte counts
+	wide.Reset()
+	for v := int64(1); v <= 500; v++ {
+		_ = wide.RecordValues(v, 300) // fits 2 bytes
+	}
+	if wide.CountWidth() != 8 {
+		t.Fatalf("setup: width %d, want 8 retained by Reset", wide.CountWidth())
+	}
+	wenc, _ := wide.Encode()
+	wide.Compact()
+	if wide.CountWidth() != 2 {
+		t.Fatalf("Compact left width %d, want 2", wide.CountWidth())
+	}
+	if after, _ := wide.Encode(); string(after) != string(wenc) {
+		t.Fatal("narrowing changed the contents")
+	}
+
 	// After Reset, Compact returns to the footprint of a new histogram.
 	p.Reset()
 	p.Compact()

@@ -515,15 +515,29 @@ func FuzzPackedDifferential(f *testing.F) {
 				if it.next() {
 					t.Fatal("ForEachBucket stopped before dense iteration did")
 				}
-				// Packed-to-packed Merge must equal recording, into both an empty
-				// and a populated packed histogram of the fuzzed geometry.
+				// Packed-to-packed Merge must equal recording. Destinations: an
+				// empty histogram, one holding every other bucket of the source
+				// (so the fast path both inserts new buckets and adds to existing
+				// ones), and one holding all of them; sources: p and mq.
 				for _, src := range []*PackedHistogram{p, mq} {
-					ref, wantDropped := referenceMerge(rq, src)
-					if dropped := rq.Merge(src); dropped != wantDropped || !packedSameBuckets(rq, ref) || rq.TotalCount() != ref.TotalCount() {
-						t.Fatalf("Merge into %v: dropped %d (want %d), total %d (want %d)", dg, dropped, wantDropped, rq.TotalCount(), ref.TotalCount())
-					}
-					if msg := packedCheckState(rq); msg != "" {
-						t.Fatalf("after Merge: %s", msg)
+					empty := NewPacked(dg.low, dg.high, int(dg.sig))
+					half := NewPacked(dg.low, dg.high, int(dg.sig))
+					k := 0
+					mq.ForEachBucket(func(v, c int64) bool {
+						if k%2 == 0 {
+							_ = half.RecordValues(v, c)
+						}
+						k++
+						return true
+					})
+					for _, dst := range []*PackedHistogram{empty, half, rq} {
+						ref, wantDropped := referenceMerge(dst, src)
+						if dropped := dst.Merge(src); dropped != wantDropped || !packedSameBuckets(dst, ref) || dst.TotalCount() != ref.TotalCount() {
+							t.Fatalf("Merge into %v: dropped %d (want %d), total %d (want %d)", dg, dropped, wantDropped, dst.TotalCount(), ref.TotalCount())
+						}
+						if msg := packedCheckState(dst); msg != "" {
+							t.Fatalf("after Merge: %s", msg)
+						}
 					}
 				}
 			}
