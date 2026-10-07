@@ -284,18 +284,15 @@ func TestCov_pctbranch_ValueAtPercentile_hugeTotal(t *testing.T) {
 		}
 	}
 
-	// p100: packed's clamp-to-total path returns Max. Dense, by contrast, rounds
-	// its float target ABOVE the true total (5000000000000003 -> +0.5 rounds to
-	// 5000000000000004 at float64 spacing 1 in [2^52,2^53)), never reaches it, and
-	// returns 0. This is exactly the case packed.countAtPercentile's clamp exists
-	// to fix ("clamping to totalCount so p100 == max holds"), so packed is the
-	// correct one here.
+	// The unbounded float target rounds ABOVE the true total: 5000000000000003
+	// + 0.5 rounds to 5000000000000004 at float64 spacing 1 in [2^52,2^53).
+	// Both implementations must clamp it to the total so P100 reaches Max.
 	pv := p.ValueAtPercentile(100.0)
 	if pv != p.Max() {
 		t.Errorf("hugeTotal p100: packed=%d, want Max()=%d", pv, p.Max())
 	}
-	if dv := d.ValueAtPercentile(100.0); dv != 0 {
-		t.Logf("note: dense p100 at total>2^52 returns %d (float-rounding limitation); packed correctly returns Max=%d", dv, pv)
+	if dv := d.ValueAtPercentile(100.0); dv != pv {
+		t.Errorf("hugeTotal p100: dense=%d, want packed Max()=%d", dv, pv)
 	}
 	// countAtPercentile takes the clamp-to-total branch and returns exactly total.
 	if got := p.countAtPercentile(100.0); got != p.TotalCount() {
