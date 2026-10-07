@@ -301,21 +301,9 @@ func (p *PackedHistogram) highestEquivalent(v int64) int64 {
 }
 
 // countAtPercentile resolves a percentile to a target cumulative count in
-// [1, totalCount], guarding the float->int cast and clamping to totalCount so
-// p100 == max holds. Bit-for-bit dense for totalCount <= 2^52.
+// [1, totalCount], using the same bounded rank as the dense queries.
 func (p *PackedHistogram) countAtPercentile(percentile float64) int64 {
-	req := percentile
-	if req > 100 {
-		req = 100
-	}
-	cc := (req/100.0)*float64(p.totalCount) + 0.5
-	if !(cc >= 1.0) { // NaN or < 1 (incl. negative / -Inf)
-		return 1
-	}
-	if cc >= float64(p.totalCount) {
-		return p.totalCount
-	}
-	return int64(cc)
+	return percentileRank(percentile, p.totalCount)
 }
 
 // packedScanBlock is the number of populated buckets summed per block in the
