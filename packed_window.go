@@ -53,12 +53,12 @@ func sameIndexing(a, b *Histogram) bool {
 // that dst could not hold. For a source whose bucket-count sum fits in int64,
 // the result matches dst.Merge applied to its dense equivalent: each populated
 // bucket is recorded at its value, and buckets outside dst's range are dropped.
-// As with Histogram.Merge, destination counts are added without overflow checks.
+// As with Histogram.Merge, a bucket whose count would push dst's total past
+// math.MaxInt64 is dropped rather than wrapping the total.
 //
 // DecodePacked can preserve positive buckets whose sum exceeds MaxInt64 while
-// saturating TotalCount. MergeInto visits all of these buckets too; dense Merge
-// may stop early when its source total has wrapped, so exact dense parity is
-// not promised for such sources. Destination counts and totals can wrap.
+// saturating TotalCount. MergeInto visits all of these buckets and drops the
+// counts dst cannot hold.
 //
 // When dst indexes values the same way (the same significant digits and the
 // same unit magnitude, floor(log2(lowestDiscernibleValue))), counts are added
@@ -71,7 +71,7 @@ func (p *PackedHistogram) MergeInto(dst *Histogram) (dropped int64) {
 	if sameIndexing(p.geom, dst) {
 		for i := int32(0); i < p.size; i++ {
 			c := p.slotGet(i)
-			if idx := int(p.idx[i]); idx < len(dst.counts) {
+			if idx := int(p.idx[i]); idx < len(dst.counts) && c <= math.MaxInt64-dst.totalCount {
 				dst.setCountAtIndex(idx, c)
 			} else {
 				dropped = addDropped(dropped, c)
@@ -81,9 +81,9 @@ func (p *PackedHistogram) MergeInto(dst *Histogram) (dropped int64) {
 	}
 	for i := int32(0); i < p.size; i++ {
 		c := p.slotGet(i)
-		// The same bound dst.RecordValues applies, without building an error
+		// The same bounds dst.RecordValues applies, without building an error
 		// for every dropped bucket.
-		if idx := dst.countsIndexFor(p.geom.valueFromFlatIndex(p.idx[i])); uint(idx) < uint(len(dst.counts)) {
+		if idx := dst.countsIndexFor(p.geom.valueFromFlatIndex(p.idx[i])); uint(idx) < uint(len(dst.counts)) && c <= math.MaxInt64-dst.totalCount {
 			dst.setCountAtIndex(idx, c)
 		} else {
 			dropped = addDropped(dropped, c)

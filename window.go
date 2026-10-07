@@ -34,7 +34,9 @@ func NewWindowed(n int, minValue, maxValue int64, sigfigs int) *WindowedHistogra
 }
 
 // Merge returns a histogram which includes the recorded values from all the
-// sections of the window. The returned histogram is reused: every call to
+// sections of the window. Counts that would push its total past math.MaxInt64
+// are dropped; unlike Histogram.Merge, it does not report how many. The
+// returned histogram is reused: every call to
 // Merge resets and refills the same histogram, so a result is only valid until
 // the next Merge. Use Clone to keep an independent snapshot:
 //

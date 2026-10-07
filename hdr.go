@@ -259,8 +259,10 @@ func (h *Histogram) getNormalizingIndexOffset() int32 {
 }
 
 // Merge merges the data stored in the given histogram with the receiver,
-// returning the number of recorded values which had to be dropped. The
-// dropped total saturates at math.MaxInt64 rather than wrapping.
+// returning the number of recorded values which had to be dropped: values
+// outside the receiver's range, and counts that would overflow its total
+// count (RecordValues rejects those). The dropped total saturates at
+// math.MaxInt64 rather than wrapping.
 func (h *Histogram) Merge(from *Histogram) (dropped int64) {
 	i := from.rIterator()
 	for i.next() {
@@ -371,7 +373,8 @@ func (h *Histogram) RecordValue(v int64) error {
 // recording process. This only works for processes which are recording values
 // at an expected interval (e.g., doing jitter analysis). Processes which are
 // recording ad-hoc values (e.g., latency for incoming requests) can't take
-// advantage of this.
+// advantage of this. As with PackedHistogram, it stops at the first value that
+// cannot be recorded and returns that error; values already recorded remain.
 func (h *Histogram) RecordCorrectedValue(v, expectedInterval int64) error {
 	if err := h.RecordValue(v); err != nil {
 		return err
@@ -393,7 +396,8 @@ func (h *Histogram) RecordCorrectedValue(v, expectedInterval int64) error {
 }
 
 // RecordValues records n occurrences of the given value, returning an error if
-// the value is out of range or n is negative.
+// the value is out of range, n is negative, or n would push the total count
+// past math.MaxInt64. On error the histogram is unchanged.
 func (h *Histogram) RecordValues(v, n int64) error {
 	// A negative value can still map to a valid index (bit masking ignores the
 	// sign), which would record it as a huge positive value. Reject it first.
@@ -416,6 +420,12 @@ func (h *Histogram) RecordValues(v, n int64) error {
 	// harmless no-op and is left to fall through.
 	if n < 0 {
 		return fmt.Errorf("cannot record a negative count %d", n)
+	}
+	// The total (and so every bucket count, which never exceeds it) must stay
+	// representable: a wrapped total makes queries return wrong values. Reject
+	// the record before mutating, as PackedHistogram does.
+	if n > math.MaxInt64-h.totalCount {
+		return fmt.Errorf("recording %d would overflow the total count", n)
 	}
 	h.setCountAtIndex(idx, n)
 
