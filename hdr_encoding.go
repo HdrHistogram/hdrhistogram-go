@@ -24,6 +24,7 @@ import (
 	"encoding/binary"
 	"fmt"
 	"io"
+	"math"
 )
 
 const (
@@ -55,6 +56,13 @@ func (h *Histogram) Encode(version int32) (buffer []byte, err error) {
 // 1 for compatibility with streams written by hdrhistogram-go v1.0.0. Any
 // range Go's constructors accept decodes. The conversion ratio is kept as
 // metadata and written back by Encode.
+//
+// Shifted histograms (a normalizingIndexOffset other than 0, as Java's
+// shiftValuesLeft/Right writes) are rejected rather than mis-indexed; the
+// offset 1 that hdrhistogram-go v1.2.0 and earlier wrote into every stream is
+// accepted. A payload whose bucket counts sum past MaxInt64 is rejected, since
+// a dense histogram cannot represent that total (DecodePacked keeps such
+// buckets and saturates its total).
 func Decode(encoded []byte) (rh *Histogram, err error) {
 	var decoded []byte
 	decoded, err = base64.StdEncoding.DecodeString(string(encoded))
@@ -201,7 +209,7 @@ func decodeCompressedFormat(compressedContents []byte, headerSize int) (rh *Hist
 		}
 		return nil, fmt.Errorf("decompressed histogram truncated: got %d bytes, need at least %d", n, headerSize)
 	}
-	cookie, PayloadLength, _, NumberOfSignificantValueDigits, LowestTrackableValue, HighestTrackableValue, conversionRatio, err := decodeDeCompressedHeaderFormat(header)
+	cookie, PayloadLength, normalizingIndexOffset, NumberOfSignificantValueDigits, LowestTrackableValue, HighestTrackableValue, conversionRatio, err := decodeDeCompressedHeaderFormat(header)
 	if err != nil {
 		return
 	}
@@ -215,6 +223,9 @@ func decodeCompressedFormat(compressedContents []byte, headerSize int) (rh *Hist
 	geometry, err := wireGeometry(LowestTrackableValue, HighestTrackableValue, NumberOfSignificantValueDigits)
 	if err != nil {
 		return nil, fmt.Errorf("corrupt histogram header: %v", err)
+	}
+	if err = checkNormalizingIndexOffset(normalizingIndexOffset, geometry); err != nil {
+		return nil, err
 	}
 	// A valid payload holds at most one zig-zag LEB128 varint (<= 9 bytes) per
 	// counts index.
@@ -232,9 +243,11 @@ func decodeCompressedFormat(compressedContents []byte, headerSize int) (rh *Hist
 	}
 	geometry.counts = make([]int64, geometry.countsLen)
 	geometry.conversionRatio = conversionRatio
-	rh = geometry
-	err = fillCountsArrayFromSourceBuffer(payload, rh)
-	return rh, err
+	if err = fillCountsArrayFromSourceBuffer(payload, geometry); err != nil {
+		// Never hand back a partially filled histogram for a corrupt payload.
+		return nil, err
+	}
+	return geometry, nil
 }
 
 func fillCountsArrayFromSourceBuffer(payload []byte, rh *Histogram) (err error) {
@@ -264,6 +277,12 @@ func fillCountsArrayFromSourceBuffer(payload []byte, rh *Histogram) (err error) 
 			// hot path); the decode path validates the untrusted index here instead.
 			if dstIndex >= int64(len(rh.counts)) {
 				return fmt.Errorf("corrupt histogram payload: index %d overflows counts array of length %d", dstIndex, len(rh.counts))
+			}
+			// A dense histogram cannot represent a total past int64: a wrapped
+			// total would make every query see an empty or wrong distribution.
+			// (DecodePacked keeps such buckets and saturates its total instead.)
+			if count > math.MaxInt64-rh.totalCount {
+				return fmt.Errorf("corrupt histogram payload: bucket counts sum past MaxInt64 at index %d", dstIndex)
 			}
 			rh.setCountAtIndex(int(dstIndex), count)
 			dstIndex += 1
@@ -330,4 +349,19 @@ func decodeDeCompressedHeaderFormat(decoded []byte) (Cookie int32, PayloadLength
 	LowestTrackableValue = r64[0]
 	HighestTrackableValue = r64[1]
 	return
+}
+
+// checkNormalizingIndexOffset accepts the normalizingIndexOffset values whose
+// payload can be read without shifting. Java writes an offset only after
+// shiftValuesLeft/Right, always a multiple of subBucketHalfCount; those shifted
+// streams are not supported. hdrhistogram-go v1.2.0 and earlier wrote a
+// meaningless offset of 1 into every stream (#66 changed it to 0). Since a
+// shift can only produce 1 when subBucketHalfCount is 1 (zero significant
+// digits, which those versions could not write), 1 is read as that legacy
+// value whenever subBucketHalfCount > 1.
+func checkNormalizingIndexOffset(offset int32, geometry *Histogram) error {
+	if offset == 0 || (offset == 1 && geometry.subBucketHalfCount > 1) {
+		return nil
+	}
+	return fmt.Errorf("non-zero normalizingIndexOffset %d is not supported", offset)
 }

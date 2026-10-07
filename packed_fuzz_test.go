@@ -205,6 +205,7 @@ func FuzzPackedDecodeHostile(f *testing.F) {
 	f.Add(uint8(0), int8(3), uint8(1), []byte{0x14, 0x14})                                                 // payloadLen too long
 	f.Add(uint8(0), int8(-1), uint8(1), []byte{0x14, 0x14})                                                // payloadLen too short
 	f.Add(uint8(0), int8(2), uint8(2), []byte{0x14})
+	f.Add(uint8(0), int8(1), uint8(2), []byte{0x14})                                                       // legacy Go offset 1
 	f.Add(uint8(0), int8(0), uint8(0), []byte{0xfe, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0x02}) // MaxInt64 then 1: saturated total
 	f.Add(uint8(0), int8(0), uint8(0), []byte{0x02, 0xfe, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff}) // 1 then MaxInt64                                                       // rotated histogram
 
@@ -226,7 +227,10 @@ func FuzzPackedDecodeHostile(f *testing.F) {
 		if err != nil {
 			return
 		}
-		if payloadLen != int32(len(payload)) || normOff != 0 || cookieXor != 0 {
+		// The only non-zero offset accepted is the legacy Go value 1, and only
+		// where a real shift could not produce it (subBucketHalfCount > 1).
+		legacyOffset := normOff == 1 && hp.geom.subBucketHalfCount > 1
+		if payloadLen != int32(len(payload)) || (normOff != 0 && !legacyOffset) || cookieXor != 0 {
 			t.Fatalf("accepted an inconsistent header: payloadLen %d (actual %d), normOff %d, cookieXor %#x",
 				payloadLen, len(payload), normOff, cookieXor)
 		}

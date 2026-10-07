@@ -88,9 +88,11 @@ func (p *PackedHistogram) Encode() ([]byte, error) {
 }
 
 // DecodePacked decodes a standard V2 compressed (base64) stream into a new
-// PackedHistogram. It rejects a non-zero normalizingIndexOffset (packed
-// histograms are never rotated) rather than mis-indexing it, so valid shifted
-// Java streams are outside the supported subset. It uses the serialized
+// PackedHistogram. It rejects shifted histograms (a normalizingIndexOffset
+// other than 0, as Java's shiftValuesLeft/Right writes) rather than
+// mis-indexing them, so valid shifted Java streams are outside the supported
+// subset; the offset 1 that hdrhistogram-go v1.2.0 and earlier wrote into every
+// stream is accepted. It uses the serialized
 // geometry exactly, including zero significant digits; precision outside 0-5
 // and unrepresentable geometry are rejected. Lowest values below 1 are read as
 // 1 for compatibility with hdrhistogram-go v1.0.0 streams, and any range Go's
@@ -151,15 +153,15 @@ func decodePackedCompressed(compressed []byte) (rp *PackedHistogram, err error) 
 	if cookie != V2EncodingCookieBase {
 		return nil, fmt.Errorf("encoding not supported, only V2 is supported. got %d want %d", cookie, V2EncodingCookieBase)
 	}
-	if normOff != 0 {
-		return nil, fmt.Errorf("packed decode: non-zero normalizingIndexOffset %d is not supported", normOff)
-	}
 	if payloadLen < 0 {
 		return nil, fmt.Errorf("negative PayloadLength: %d", payloadLen)
 	}
 	geometry, err := wireGeometry(low, high, sig)
 	if err != nil {
 		return nil, fmt.Errorf("corrupt histogram header: %v", err)
+	}
+	if err = checkNormalizingIndexOffset(normOff, geometry); err != nil {
+		return nil, fmt.Errorf("packed decode: %v", err)
 	}
 	geometry.conversionRatio = conversionRatio
 	rp = &PackedHistogram{geom: geometry, width: 1}
