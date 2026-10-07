@@ -35,7 +35,8 @@ lint: .prepare-golangci
 # Fuzz every native Go fuzz target in turn: make fuzz [FUZZTIME=5m]
 FUZZTIME ?= 30s
 fuzz:
-	@for t in $$(.github/scripts/fuzz-targets.sh); do \
+	@targets=$$(.github/scripts/fuzz-targets.sh) || exit 1; \
+	for t in $$targets; do \
 		echo "== $$t ($(FUZZTIME))"; \
 		$(GOTEST) -run='^$$' -fuzz="^$$t\$$" -fuzztime=$(FUZZTIME) . || exit 1; \
 	done
