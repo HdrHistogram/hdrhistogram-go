@@ -35,8 +35,9 @@ type Snapshot struct {
 //
 // A Histogram must not be copied by value after it is created: a struct copy
 // shares the counts array but keeps its own total, so recording into or
-// resetting one makes the other inconsistent. Use Clone (or Import(h.Export()))
-// for an independent snapshot. A Histogram provides no internal
+// resetting one makes the other inconsistent. Use Clone for an independent
+// copy (Import(h.Export()) also gives independent storage, but keeps only the
+// geometry, counts and conversion ratio, not the tag or start/end times). A Histogram provides no internal
 // synchronization: concurrent reads are safe only while nothing mutates it, and
 // callers must synchronize recording, Reset and Merge against all other use.
 type Histogram struct {
@@ -794,7 +795,14 @@ func (h *Histogram) Clone() *Histogram {
 // geometry's range must be zero (Import would drop them), and the counts must
 // sum to at most math.MaxInt64. Validate untrusted snapshots, for example ones
 // decoded from JSON, before passing them to Import.
+//
+// Like Decode, it accepts every range the constructors accept (including a
+// highest value below twice the lowest), reads a lowest value below 1 as 1,
+// and does not check the conversion ratio, which is metadata.
 func (s *Snapshot) Validate() error {
+	if s == nil {
+		return fmt.Errorf("nil snapshot")
+	}
 	if s.SignificantFigures < 0 || s.SignificantFigures > 5 {
 		return fmt.Errorf("significant figures must be between 0 and 5, got %d", s.SignificantFigures)
 	}
@@ -822,10 +830,11 @@ func (s *Snapshot) Validate() error {
 }
 
 // Import returns a new Histogram populated from the Snapshot data. It never
-// fails; use Snapshot.Validate first for snapshots that may be invalid.
-// Negative counts, which a valid snapshot never holds, are imported as zero so
-// that the histogram's total always matches its counts, and counts beyond the
-// geometry's range are dropped.
+// fails; use Snapshot.Validate first for snapshots that may be invalid. For a
+// snapshot that passes Validate, the histogram's total equals the sum of its
+// counts. Otherwise: negative counts are imported as zero (the total has
+// always excluded them), counts beyond the geometry's range are dropped, and
+// counts summing past math.MaxInt64 wrap the total.
 func Import(s *Snapshot) *Histogram {
 	// A snapshot's counts are indexed by its exact geometry. Decoded histograms
 	// can have 0 significant digits, which New would clamp to 1 and so remap

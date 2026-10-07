@@ -33,6 +33,16 @@ func TestWindowedSnapshotWithClone(t *testing.T) {
 	if shallow.TotalCount() != 1 || countsSum(&shallow) != 0 {
 		t.Fatalf("expected the shallow copy to share (now reset) counts: total %d sum %d", shallow.TotalCount(), countsSum(&shallow))
 	}
+	// Import(Export()) is also an independent snapshot of a window result.
+	w2 := NewWindowed(2, 1, 10_000_000_000, 3)
+	_ = w2.Current.RecordValue(1000)
+	viaImport := Import(w2.Merge().Export())
+	w2.Rotate()
+	w2.Rotate()
+	w2.Merge()
+	if viaImport.TotalCount() != 1 || viaImport.ValueAtPercentile(99) != 1000 {
+		t.Fatal("Import(Export()) snapshot changed after Rotate and Merge")
+	}
 	// Merge results are reused: a previously returned pointer follows later merges.
 	first := w.Merge()
 	_ = w.Current.RecordValue(5000)
@@ -71,6 +81,10 @@ func TestHistogramCloneIsIndependent(t *testing.T) {
 	}
 	if dc := d.Clone(); !dc.Equals(d) || dc.significantFigures != 0 {
 		t.Fatal("Clone changed a 0-digit decoded histogram")
+	}
+	h.conversionRatio = 2.5
+	if h.Clone().getIntegerToDoubleValueConversionRatio() != 2.5 {
+		t.Fatal("Clone dropped the conversion ratio")
 	}
 }
 
@@ -129,6 +143,15 @@ func TestSnapshotValidate(t *testing.T) {
 		if err := s.Validate(); err == nil || !strings.Contains(err.Error(), tc.want) {
 			t.Fatalf("%s: Validate err = %v, want %q", tc.name, err, tc.want)
 		}
+	}
+	// A sum of exactly MaxInt64 is valid.
+	exact := New(1, 1000, 3).Export()
+	exact.Counts[0], exact.Counts[1] = math.MaxInt64-1, 1
+	if err := exact.Validate(); err != nil {
+		t.Fatalf("sum of exactly MaxInt64: %v", err)
+	}
+	if err := (*Snapshot)(nil).Validate(); err == nil {
+		t.Fatal("nil snapshot validated")
 	}
 	// Trailing zero counts beyond the range are harmless.
 	s := New(1, 1000, 3).Export()

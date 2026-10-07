@@ -17,7 +17,7 @@ type WindowedHistogram struct {
 }
 
 // NewWindowed creates a new WindowedHistogram with N underlying histograms with
-// the given parameters.
+// the given parameters. n must be at least 1.
 func NewWindowed(n int, minValue, maxValue int64, sigfigs int) *WindowedHistogram {
 	w := WindowedHistogram{
 		idx: -1,
@@ -41,8 +41,8 @@ func NewWindowed(n int, minValue, maxValue int64, sigfigs int) *WindowedHistogra
 //	saved := w.Merge().Clone()
 func (w *WindowedHistogram) Merge() *Histogram {
 	w.m.Reset()
-	for _, h := range w.h {
-		w.m.Merge(&h)
+	for i := range w.h {
+		w.m.Merge(&w.h[i])
 	}
 	return w.m
 }

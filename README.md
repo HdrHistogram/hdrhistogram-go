@@ -71,6 +71,10 @@ If you are using Go modules, you can update to the exact point of transfter usin
 go mod edit -replace github.com/codahale/hdrhistogram=github.com/HdrHistogram/hdrhistogram-go@v0.9.0
 ```
 
+### Ownership and snapshots
+
+A `Histogram` must not be copied by value: a struct copy shares its counts array. Use `Clone` for an independent copy, for example `saved := w.Merge().Clone()` to keep a `WindowedHistogram` result, which is reused by the next `Merge`. Histograms provide no internal synchronization. Call `Snapshot.Validate` before `Import` for snapshots from untrusted sources.
+
 ## Packed histograms
 -------
 
