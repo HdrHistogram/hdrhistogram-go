@@ -23,6 +23,7 @@ jobs:
       id: run
       uses: google/clusterfuzzlite/actions/run_fuzzers@v1
       with:
+        language: go
         github-token: ${{ secrets.GITHUB_TOKEN }}
         fuzz-seconds: 600
         mode: 'prune'
@@ -42,6 +43,7 @@ jobs:
       id: run
       uses: google/clusterfuzzlite/actions/run_fuzzers@v1
       with:
+        language: go
         github-token: ${{ secrets.GITHUB_TOKEN }}
         fuzz-seconds: 600
         mode: 'coverage'
