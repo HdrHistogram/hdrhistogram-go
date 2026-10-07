@@ -129,6 +129,30 @@ func TestPackedGeometryGetters(t *testing.T) {
 	}
 }
 
+func TestPackedClonePreservesJavaZeroDigitGeometry(t *testing.T) {
+	p, err := DecodePacked([]byte(javaZeroDigits1000))
+	if err != nil {
+		t.Fatal(err)
+	}
+	p.SetTag("foreign")
+	clone := p.Clone()
+	if clone.SignificantFigures() != 0 || clone.LowestTrackableValue() != 1 || clone.HighestTrackableValue() != 1000 || clone.Tag() != "foreign" {
+		t.Fatal("clone changed the decoded geometry or metadata")
+	}
+	assertPackedStatistic(t, "zero-digit Mean", clone.Mean(), 96)
+	assertPackedStatistic(t, "zero-digit StdDev", clone.StdDev(), 0)
+	clone.Reset()
+	if err := clone.RecordValue(100); err != nil {
+		t.Fatal(err)
+	}
+	if clone.SignificantFigures() != 0 || clone.Min() != 64 || clone.Max() != 127 || clone.CountAtValue(100) != 1 {
+		t.Fatal("empty sibling failed to preserve zero-digit bucket mapping")
+	}
+	if p.TotalCount() != 1 || p.CountAtValue(100) != 1 || p.Tag() != "foreign" {
+		t.Fatal("reset/record on clone changed original")
+	}
+}
+
 func TestPackedRecordCorrectedValueMatchesDense(t *testing.T) {
 	for _, tc := range []struct{ value, interval int64 }{
 		{100, 10}, {105, 10}, {100, 0}, {100, -10}, {100, math.MinInt64}, {100, 100}, {100, 101}, {0, 10},

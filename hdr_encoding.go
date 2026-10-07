@@ -50,7 +50,8 @@ func (h *Histogram) Encode(version int32) (buffer []byte, err error) {
 
 // Decode returns a new Histogram by decoding it from a String containing
 // a base64 encoded compressed histogram representation. Invalid serialized
-// geometry is rejected instead of applying New's argument normalization.
+// ranges and precision are rejected. Lowest values below 1 are read as 1 for
+// compatibility with streams written by hdrhistogram-go v1.0.0.
 // Conversion-ratio metadata is not retained; re-encoding emits a ratio of 1.0.
 func Decode(encoded []byte) (rh *Histogram, err error) {
 	var decoded []byte
@@ -209,13 +210,13 @@ func decodeCompressedFormat(compressedContents []byte, headerSize int) (rh *Hist
 	if PayloadLength < 0 {
 		return nil, fmt.Errorf("negative PayloadLength: %d", PayloadLength)
 	}
-	if err = validateWireGeometry(LowestTrackableValue, HighestTrackableValue, NumberOfSignificantValueDigits); err != nil {
+	if err = validateWireRange(LowestTrackableValue, HighestTrackableValue); err != nil {
 		return nil, fmt.Errorf("corrupt histogram header: %v", err)
 	}
-	if err = checkGeometry(LowestTrackableValue, int(NumberOfSignificantValueDigits)); err != nil {
+	geometry, err := wireGeometry(LowestTrackableValue, HighestTrackableValue, NumberOfSignificantValueDigits)
+	if err != nil {
 		return nil, fmt.Errorf("corrupt histogram header: %v", err)
 	}
-	geometry := newGeometry(LowestTrackableValue, HighestTrackableValue, int(NumberOfSignificantValueDigits))
 	// A valid payload holds at most one zig-zag LEB128 varint (<= 9 bytes) per
 	// counts index.
 	if maxPayload := int64(geometry.countsLen) * 9; int64(PayloadLength) > maxPayload {

@@ -90,7 +90,9 @@ func (p *PackedHistogram) Encode() ([]byte, error) {
 // DecodePacked decodes a standard V2 compressed (base64) stream into a new
 // PackedHistogram. It rejects a non-zero normalizingIndexOffset (packed
 // histograms are never rotated) rather than mis-indexing it. Invalid serialized
-// geometry is rejected instead of applying constructor argument clamping.
+// ranges and precision are rejected. Lowest values below 1 are read as 1 for
+// compatibility with hdrhistogram-go v1.0.0 streams; zero-digit geometry is
+// retained exactly instead of applying constructor precision clamping.
 // The conversion ratio is not retained: counts remain in integer bucket units,
 // and re-encoding emits a ratio of 1.0. Valid shifted Java streams are therefore
 // outside the supported subset, and non-default ratios do not round-trip.
@@ -155,13 +157,14 @@ func decodePackedCompressed(compressed []byte) (rp *PackedHistogram, err error) 
 	if payloadLen < 0 {
 		return nil, fmt.Errorf("negative PayloadLength: %d", payloadLen)
 	}
-	if err = validateWireGeometry(low, high, sig); err != nil {
+	if err = validateWireRange(low, high); err != nil {
 		return nil, fmt.Errorf("corrupt histogram header: %v", err)
 	}
-	if err = checkGeometry(low, int(sig)); err != nil {
+	geometry, err := wireGeometry(low, high, sig)
+	if err != nil {
 		return nil, fmt.Errorf("corrupt histogram header: %v", err)
 	}
-	rp = NewPacked(low, high, int(sig))
+	rp = &PackedHistogram{geom: geometry, width: 1}
 	// A valid payload holds at most one zig-zag LEB128 varint (<= 9 bytes)
 	// per counts index.
 	if maxPayload := int64(rp.geom.countsLen) * 9; int64(payloadLen) > maxPayload {

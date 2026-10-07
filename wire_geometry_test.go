@@ -12,8 +12,6 @@ func TestDecodersRejectInvalidWireGeometry(t *testing.T) {
 		low, high int64
 		sig       int32
 	}{
-		{"zero lowest", 0, 1000, 3},
-		{"negative lowest", -1, 1000, 3},
 		{"negative highest", 1, -1, 3},
 		{"zero highest", 1, 0, 3},
 		{"range too small", 100, 100, 3},
@@ -32,6 +30,30 @@ func TestDecodersRejectInvalidWireGeometry(t *testing.T) {
 				t.Fatalf("packed decode: histogram=%v error=%v", h, err)
 			}
 		})
+	}
+}
+
+func TestDecodersPreserveLegacyLowestWhileValidatingRange(t *testing.T) {
+	for _, low := range []int64{0, -1, math.MinInt64} {
+		encoded := buildPackedV2Stream(low, 1000, 3, 1, 0, 0, []byte{2})
+		d, err := Decode(encoded)
+		if err != nil || d == nil {
+			t.Fatalf("legacy dense low=%d: %v", low, err)
+		}
+		p, err := DecodePacked(encoded)
+		if err != nil || p == nil {
+			t.Fatalf("legacy packed low=%d: %v", low, err)
+		}
+		if d.LowestTrackableValue() != 1 || p.LowestTrackableValue() != 1 || d.TotalCount() != 1 || p.CountAtValue(0) != 1 {
+			t.Fatalf("legacy low=%d changed geometry or counts", low)
+		}
+		invalid := buildPackedV2Stream(low, 1, 3, 1, 0, 0, []byte{2})
+		if _, err := Decode(invalid); err == nil {
+			t.Fatalf("legacy dense low=%d bypassed range validation", low)
+		}
+		if _, err := DecodePacked(invalid); err == nil {
+			t.Fatalf("legacy packed low=%d bypassed range validation", low)
+		}
 	}
 }
 

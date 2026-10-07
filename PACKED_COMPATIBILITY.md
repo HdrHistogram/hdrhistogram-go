@@ -43,7 +43,7 @@ Go stores bucket counts, so zero and one are indistinguishable at this geometry.
 
 For example, `NewPacked(1, 1000, 3).RecordValue(1001)` succeeds in Go, as does recording `1000` into `NewPacked(0, -1, 6)`. The latter constructor normalizes the lowest value to 1 and precision to 5, while retaining the supplied highest value. Geometries that cannot be represented in 64 bits can still panic; permissive construction is not unrestricted construction. No strict constructor is added here, to preserve existing callers' normalization behavior. Applications needing a stricter configuration policy should validate their configuration before construction.
 
-Constructor normalization does not authorize reinterpreting foreign wire headers. `DecodePacked` validates raw serialized geometry and rejects invalid headers instead of applying constructor clamping. In particular, a histogram constructed with an invalid highest value can be encoded but its stream will be rejected on decode. Use valid geometry for portable serialization and independent copies made through encoding.
+Constructor normalization does not authorize reinterpreting foreign wire headers. Both decoders preserve serialized precision exactly, including Java's zero-digit geometry, and reject precision outside 0–5 or a highest value below twice the effective lowest value. There is one legacy exception: hdrhistogram-go v1.0.0 wrote lowest values below 1 while using unit magnitude zero, so those fields are read as 1 without changing the bucket mapping. The range is checked against that effective value. A histogram constructed with an invalid highest value can still be encoded but its stream will be rejected on decode. Use valid geometry for portable serialization.
 
 ## V2 interchange
 
