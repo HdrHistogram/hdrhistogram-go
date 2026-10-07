@@ -11,7 +11,8 @@ import (
 // recording 1, 100, 12345 and 3600000000.
 const goV120LegacyOffset = "HISTFAAAADV42pJpmSzMwMDAw8DAwMjAwMDMAAEgNsO1yUsY7D9ARZgOMzIddmO6voiJCRAAAP//nYsH5A=="
 
-// Java shiftValuesLeft produced this stream (normalizingIndexOffset 2048).
+// Java PackedHistogram.shiftValuesLeft(2) produced this stream
+// (normalizingIndexOffset 2048).
 const javaShiftedStream = "HISTFAAAACR4nJNpmSzMwMDAzMDAwQChwYARTPI7Odh/gAgsNuYDAEyEA/o="
 
 // #106: DecodePacked must read streams from Go releases before #66, which
@@ -59,31 +60,54 @@ func TestDecodeLegacyGoOffsetStreams(t *testing.T) {
 	}
 }
 
-// Offsets other than 0 and the legacy 1 come from shifted histograms; both
-// decoders reject them instead of mis-indexing the payload. Offset 1 is only
-// read as the legacy value where a shift could not produce it.
-func TestDecodeRejectsShiftedOffsets(t *testing.T) {
-	for _, wire := range []string{javaShiftedStream} {
-		if _, err := Decode([]byte(wire)); err == nil || !strings.Contains(err.Error(), "normalizingIndexOffset 2048") {
-			t.Fatalf("dense Decode of a shifted Java stream: err = %v", err)
+// Java writes the V2 payload in logical index order (its encoder reads through
+// the in-memory rotation), so normalizingIndexOffset only describes the
+// writer's layout and both decoders ignore it. Values are Java's own decode.
+func TestDecodersIgnoreNormalizingIndexOffset(t *testing.T) {
+	for _, tc := range []struct {
+		wire              string
+		total, min, max   int64
+		value, valueCount int64
+	}{
+		// PackedHistogram.shiftValuesLeft(2): offset 2048.
+		{javaShiftedStream, 7, 4936, 4939, 4936, 7},
+		// Histogram(1, 3600000000, 3) recording 100, 12345, 1000000, then
+		// shiftValuesLeft(2): offset 2048.
+		{"HISTFAAAAC14nJNpmSzMwMDAycDAAaQYmBkggBFEXJu8hMH+A0RgPhvT60SmjWlMAIxwB6Y=", 3, 400, 4001791, 49376, 1},
+	} {
+		d, err := Decode([]byte(tc.wire))
+		if err != nil {
+			t.Fatalf("dense: %v", err)
 		}
-		if _, err := DecodePacked([]byte(wire)); err == nil || !strings.Contains(err.Error(), "normalizingIndexOffset 2048") {
-			t.Fatalf("DecodePacked of a shifted Java stream: err = %v", err)
+		if d.TotalCount() != tc.total || d.Min() != tc.min || d.Max() != tc.max || d.counts[d.countsIndexFor(tc.value)] != tc.valueCount {
+			t.Fatalf("dense: total %d min %d max %d, want Java's %d %d %d", d.TotalCount(), d.Min(), d.Max(), tc.total, tc.min, tc.max)
+		}
+		p, err := DecodePacked([]byte(tc.wire))
+		if err != nil {
+			t.Fatalf("packed: %v", err)
+		}
+		if p.TotalCount() != tc.total || p.Min() != tc.min || p.Max() != tc.max || p.CountAtValue(tc.value) != tc.valueCount {
+			t.Fatalf("packed: total %d min %d max %d, want Java's %d %d %d", p.TotalCount(), p.Min(), p.Max(), tc.total, tc.min, tc.max)
 		}
 	}
-	for _, tc := range []struct {
-		sig, offset int32
-		ok          bool
-	}{
-		{3, 0, true}, {3, 1, true}, {1, 1, true}, {5, 1, true},
-		{3, 2, false}, {3, -1, false}, {3, 1024, false}, {3, math.MinInt32, false},
-		{0, 1, false}, // zero digits: subBucketHalfCount is 1, so 1 could be a real shift
-	} {
-		enc := buildPackedV2Stream(1, 1000, tc.sig, 1, tc.offset, 0, []byte{2})
-		_, derr := Decode(enc)
-		_, perr := DecodePacked(enc)
-		if (derr == nil) != tc.ok || (perr == nil) != tc.ok {
-			t.Fatalf("sig %d offset %d: dense err %v, packed err %v, want ok=%v", tc.sig, tc.offset, derr, perr, tc.ok)
+	// Any offset decodes to exactly the buckets of the same payload with offset 0,
+	// including zero-digit geometry.
+	for _, sig := range []int32{0, 1, 3, 5} {
+		base := buildPackedV2Stream(1, 1000, sig, 3, 0, 0, []byte{0x14, 0x01, 0x06})
+		want, err := DecodePacked(base)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, off := range []int32{1, 2, -1, 1024, 2048, math.MaxInt32, math.MinInt32} {
+			enc := buildPackedV2Stream(1, 1000, sig, 3, off, 0, []byte{0x14, 0x01, 0x06})
+			p, err := DecodePacked(enc)
+			if err != nil || !packedSameBuckets(p, want) || p.TotalCount() != want.TotalCount() {
+				t.Fatalf("sig %d offset %d: packed err %v or buckets differ", sig, off, err)
+			}
+			d, err := Decode(enc)
+			if err != nil || d.TotalCount() != want.TotalCount() {
+				t.Fatalf("sig %d offset %d: dense err %v", sig, off, err)
+			}
 		}
 	}
 }

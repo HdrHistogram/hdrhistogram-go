@@ -232,8 +232,15 @@ func TestCov_decodeerr_NonZeroNormalizingOffset(t *testing.T) {
 	comp := cov_decodeerr_zlib(t, innerBytes)
 	enc := cov_decodeerr_wrap(compressedEncodingCookie, int32(len(comp)), comp)
 
+	// The offset only describes a writer's in-memory rotation; the payload is
+	// in logical order, so the decoder ignores it and the buckets are unchanged.
 	rp, err := cov_decodeerr_decodeNoPanic(t, enc)
-	cov_decodeerr_wantErr(t, "nonzero-normoff", rp, err, "non-zero normalizingIndexOffset")
+	if err != nil {
+		t.Fatalf("nonzero-normoff: %v", err)
+	}
+	if rp.TotalCount() != 7 || rp.CountAtValue(12345) != 7 || rp.Populated() != 1 {
+		t.Fatalf("nonzero-normoff: total %d count %d populated %d", rp.TotalCount(), rp.CountAtValue(12345), rp.Populated())
+	}
 }
 
 func TestCov_decodeerr_PayloadLenMismatch(t *testing.T) {

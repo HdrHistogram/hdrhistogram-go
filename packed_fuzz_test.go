@@ -227,12 +227,17 @@ func FuzzPackedDecodeHostile(f *testing.F) {
 		if err != nil {
 			return
 		}
-		// The only non-zero offset accepted is the legacy Go value 1, and only
-		// where a real shift could not produce it (subBucketHalfCount > 1).
-		legacyOffset := normOff == 1 && hp.geom.subBucketHalfCount > 1
-		if payloadLen != int32(len(payload)) || (normOff != 0 && !legacyOffset) || cookieXor != 0 {
+		if payloadLen != int32(len(payload)) || cookieXor != 0 {
 			t.Fatalf("accepted an inconsistent header: payloadLen %d (actual %d), normOff %d, cookieXor %#x",
 				payloadLen, len(payload), normOff, cookieXor)
+		}
+		// normalizingIndexOffset only describes a writer's in-memory layout, so
+		// it must never change what is decoded.
+		if normOff != 0 {
+			plain, err := DecodePacked(buildPackedV2Stream(g.low, g.high, g.sig, payloadLen, 0, 0, payload))
+			if err != nil || !packedSameBuckets(hp, plain) || hp.TotalCount() != plain.TotalCount() {
+				t.Fatalf("offset %d changed the decoded histogram (offset-0 decode err %v)", normOff, err)
+			}
 		}
 		if msg := packedCheckState(hp); msg != "" {
 			t.Fatalf("decoded state invalid: %s", msg)

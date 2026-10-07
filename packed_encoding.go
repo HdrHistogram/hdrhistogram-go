@@ -88,11 +88,10 @@ func (p *PackedHistogram) Encode() ([]byte, error) {
 }
 
 // DecodePacked decodes a standard V2 compressed (base64) stream into a new
-// PackedHistogram. It rejects shifted histograms (a normalizingIndexOffset
-// other than 0, as Java's shiftValuesLeft/Right writes) rather than
-// mis-indexing them, so valid shifted Java streams are outside the supported
-// subset; the offset 1 that hdrhistogram-go v1.2.0 and earlier wrote into every
-// stream is accepted. It uses the serialized
+// PackedHistogram. Like Decode, it ignores the normalizingIndexOffset header
+// field, which only describes the writer's in-memory layout (the payload is in
+// logical index order), so shifted Java histograms and streams from
+// hdrhistogram-go v1.2.0 and earlier (offset 1) decode. It uses the serialized
 // geometry exactly, including zero significant digits; precision outside 0-5
 // and unrepresentable geometry are rejected. Lowest values below 1 are read as
 // 1 for compatibility with hdrhistogram-go v1.0.0 streams, and any range Go's
@@ -143,7 +142,7 @@ func decodePackedCompressed(compressed []byte) (rp *PackedHistogram, err error) 
 		}
 		return nil, fmt.Errorf("decompressed histogram truncated: got %d bytes, need at least %d", n, ENCODING_HEADER_SIZE)
 	}
-	cookie, payloadLen, normOff, sig, low, high, conversionRatio, err := decodeDeCompressedHeaderFormat(hdr)
+	cookie, payloadLen, _, sig, low, high, conversionRatio, err := decodeDeCompressedHeaderFormat(hdr)
 	if err != nil {
 		// Defensive: decodeDeCompressedHeaderFormat reads exactly the 40 bytes
 		// guaranteed present by the ReadFull above, so binary.Read cannot
@@ -159,9 +158,6 @@ func decodePackedCompressed(compressed []byte) (rp *PackedHistogram, err error) 
 	geometry, err := wireGeometry(low, high, sig)
 	if err != nil {
 		return nil, fmt.Errorf("corrupt histogram header: %v", err)
-	}
-	if err = checkNormalizingIndexOffset(normOff, geometry); err != nil {
-		return nil, fmt.Errorf("packed decode: %v", err)
 	}
 	geometry.conversionRatio = conversionRatio
 	rp = &PackedHistogram{geom: geometry, width: 1}
