@@ -63,7 +63,7 @@ func (p *PackedHistogram) MergeInto(dst *Histogram) (dropped int64) {
 			if idx := int(p.idx[i]); idx < len(dst.counts) {
 				dst.setCountAtIndex(idx, c)
 			} else {
-				dropped += c
+				dropped = addDropped(dropped, c)
 			}
 		}
 		return dropped
@@ -75,7 +75,7 @@ func (p *PackedHistogram) MergeInto(dst *Histogram) (dropped int64) {
 		if idx := dst.countsIndexFor(p.geom.valueFromFlatIndex(p.idx[i])); uint(idx) < uint(len(dst.counts)) {
 			dst.setCountAtIndex(idx, c)
 		} else {
-			dropped += c
+			dropped = addDropped(dropped, c)
 		}
 	}
 	return dropped
@@ -108,7 +108,7 @@ func (p *PackedHistogram) MergeFrom(src *Histogram) (dropped int64) {
 			ci = int32(p.geom.countsIndexFor(src.valueFromFlatIndex(ci)))
 		}
 		if uint32(ci) >= uint32(p.geom.countsLen) || c > math.MaxInt64-p.totalCount {
-			dropped += c
+			dropped = addDropped(dropped, c)
 			continue
 		}
 		p.sparseAdd(ci, c)
@@ -187,7 +187,7 @@ func (p *PackedHistogram) Merge(from *PackedHistogram) (dropped int64) {
 				ci = int32(p.geom.countsIndexFor(from.geom.valueFromFlatIndex(ci)))
 			}
 			if uint32(ci) >= uint32(p.geom.countsLen) || c > math.MaxInt64-p.totalCount {
-				dropped += c
+				dropped = addDropped(dropped, c)
 				continue
 			}
 			p.sparseAdd(ci, c)
@@ -201,7 +201,7 @@ func (p *PackedHistogram) Merge(from *PackedHistogram) (dropped int64) {
 	n := from.size
 	for n > 0 && from.idx[n-1] >= p.geom.countsLen {
 		n--
-		dropped += from.slotGet(n)
+		dropped = addDropped(dropped, from.slotGet(n))
 	}
 	// Pass 1: how many buckets are new to p, and the largest resulting count.
 	var added int32
@@ -265,4 +265,14 @@ func (p *PackedHistogram) Merge(from *PackedHistogram) (dropped int64) {
 	p.size = newSize
 	p.totalCount += from.totalCount - dropped
 	return dropped
+}
+
+// addDropped adds a rejected count to a dropped total, saturating at
+// math.MaxInt64: a decoded source can hold buckets whose sum exceeds int64,
+// and a wrapped total could otherwise report a lossy merge as lossless.
+func addDropped(total, c int64) int64 {
+	if c > math.MaxInt64-total {
+		return math.MaxInt64
+	}
+	return total + c
 }

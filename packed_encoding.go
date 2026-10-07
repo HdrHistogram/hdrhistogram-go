@@ -151,10 +151,11 @@ func decodePackedCompressed(compressed []byte) (rp *PackedHistogram, err error) 
 	if payloadLen < 0 {
 		return nil, fmt.Errorf("negative PayloadLength: %d", payloadLen)
 	}
-	if err = checkGeometry(low, int(sig)); err != nil {
+	geometry, err := wireGeometry(low, high, sig)
+	if err != nil {
 		return nil, fmt.Errorf("corrupt histogram header: %v", err)
 	}
-	rp = NewPacked(low, high, int(sig))
+	rp = &PackedHistogram{geom: geometry, width: 1}
 	// A valid payload holds at most one zig-zag LEB128 varint (<= 9 bytes)
 	// per counts index.
 	if maxPayload := int64(rp.geom.countsLen) * 9; int64(payloadLen) > maxPayload {
