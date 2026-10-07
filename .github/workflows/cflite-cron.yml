@@ -1,8 +1,11 @@
 name: ClusterFuzzLite cron tasks
 # Corpus pruning, which ClusterFuzzLite requires alongside batch fuzzing so the
-# stored corpus stays minimal, and a coverage report, which lets the PR
-# code-change job fuzz only the targets a change can affect. Runs after the
-# nightly batch job.
+# stored corpus stays minimal. Runs after the nightly batch job.
+#
+# There is deliberately no coverage job: ClusterFuzzLite's Go coverage path
+# (compile_native_go_fuzzer's legacy build) runs no test and prefixes file paths
+# with the build directory, so its report shows 0 covered lines for every target
+# and cannot narrow PR code-change runs. PR runs fuzz every target instead.
 on:
   schedule:
     - cron: '23 6 * * *'
@@ -28,23 +31,3 @@ jobs:
         fuzz-seconds: 600
         mode: 'prune'
 
-  Coverage:
-    runs-on: ubuntu-latest
-    timeout-minutes: 60
-    steps:
-    - name: Build Fuzzers
-      id: build
-      uses: google/clusterfuzzlite/actions/build_fuzzers@v1
-      with:
-        github-token: ${{ secrets.GITHUB_TOKEN }}
-        language: go
-        sanitizer: coverage
-    - name: Run Fuzzers
-      id: run
-      uses: google/clusterfuzzlite/actions/run_fuzzers@v1
-      with:
-        language: go
-        github-token: ${{ secrets.GITHUB_TOKEN }}
-        fuzz-seconds: 600
-        mode: 'coverage'
-        sanitizer: 'coverage'

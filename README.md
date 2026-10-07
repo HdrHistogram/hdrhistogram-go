@@ -78,7 +78,7 @@ Every `FuzzXxx` target in the module root is fuzzed in CI, with no list to maint
 
 * **Fuzz smoke** (every push and PR): 30 seconds per target, starting from the corpus the nightly run has built.
 * **Fuzz nightly**: 30 minutes per target. Each target's corpus is kept in the Actions cache, so every night continues from the last; on Sundays each corpus is first minimised (`.github/scripts/fuzz-corpus-minimize.sh`). A failure uploads the failing input as an artifact and opens (or updates) a tracking issue. It can also be started by hand with a longer `fuzzminutes` or `minimize` enabled.
-* **ClusterFuzzLite**: libFuzzer with AddressSanitizer on PRs, plus a nightly batch run, corpus pruning and a coverage report (which lets PR runs focus on the targets a change affects). New targets must be registered in `.clusterfuzzlite/build.sh`, and no target name may be a prefix of another fuzz function's name; CI fails otherwise.
+* **ClusterFuzzLite**: libFuzzer with AddressSanitizer on PRs, plus a nightly batch run and corpus pruning. New targets must be registered in `.clusterfuzzlite/build.sh`, and no target name may be a prefix of another fuzz function's name; CI fails otherwise.
 
 Locally, `make fuzz FUZZTIME=1m` fuzzes every target in turn. To reproduce a CI failure, copy the uploaded input into `testdata/fuzz/<Target>/` and run `go test -run='^<Target>$' .`.
 
