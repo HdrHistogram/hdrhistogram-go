@@ -481,3 +481,21 @@ func TestPackedMergeSameIndexingNarrowerRange(t *testing.T) {
 		t.Fatalf("total %d, counts %d/%d", p.TotalCount(), p.CountAtValue(10), p.CountAtValue(edge-1))
 	}
 }
+
+// Compact picks the narrowest width exactly at each width's maximum count.
+func TestPackedCompactWidthBoundaries(t *testing.T) {
+	for _, tc := range []struct {
+		largest int64
+		width   int
+	}{{255, 1}, {256, 2}, {65535, 2}, {65536, 4}, {1<<32 - 1, 4}, {1 << 32, 8}} {
+		p := NewPacked(1, 1000, 2)
+		_ = p.RecordValues(10, 1<<40) // 8-byte counts
+		p.Reset()
+		_ = p.RecordValues(20, 3)
+		_ = p.RecordValues(30, tc.largest)
+		p.Compact()
+		if p.CountWidth() != tc.width || p.CountAtValue(30) != tc.largest || p.CountAtValue(20) != 3 {
+			t.Fatalf("largest %d: width %d (want %d), counts %d/%d", tc.largest, p.CountWidth(), tc.width, p.CountAtValue(20), p.CountAtValue(30))
+		}
+	}
+}
