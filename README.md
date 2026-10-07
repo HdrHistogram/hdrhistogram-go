@@ -122,7 +122,7 @@ for _, s := range ring {
 p99 := window.ValueAtQuantile(99)
 ```
 
-The merge methods return the count they had to drop (values out of the destination's range, or counts that would overflow a packed total). `MergeInto` does not check destination count overflow. Costs differ by operation:
+The merge methods return the count they had to drop (values out of the destination's range, or counts that would overflow the destination's total). Dense and packed `RecordValues` reject a count that would overflow the total, so totals never wrap. Costs differ by operation:
 
 | Operation | Work and allocations |
 |---|---|

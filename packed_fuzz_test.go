@@ -369,17 +369,14 @@ func FuzzPackedDifferential(f *testing.F) {
 		// Highest value the counts array can hold, which can be well above high.
 		topEnd := p.highestEquivalent(p.geom.valueFromFlatIndex(p.geom.countsLen - 1))
 		record := func(v, n int64) {
-			if n > math.MaxInt64-d.TotalCount() {
-				// Intentional difference: packed rejects a total overflow, dense wraps.
-				if err := p.RecordValues(v, n); err == nil {
-					t.Fatalf("packed accepted RecordValues(%d, %d) overflowing total %d", v, n, p.TotalCount())
-				}
-				return
-			}
+			// Both reject a count that would overflow the total (#113).
 			derr := d.RecordValues(v, n)
 			perr := p.RecordValues(v, n)
 			if (derr == nil) != (perr == nil) {
 				t.Fatalf("RecordValues(%d, %d): dense err %v, packed err %v", v, n, derr, perr)
+			}
+			if d.TotalCount() != p.TotalCount() {
+				t.Fatalf("RecordValues(%d, %d): dense total %d, packed total %d", v, n, d.TotalCount(), p.TotalCount())
 			}
 		}
 		checkPercentiles := func(pcts []float64) {

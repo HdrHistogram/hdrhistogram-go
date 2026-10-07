@@ -253,21 +253,19 @@ func TestCov_recorderr_TotalCountOverflow(t *testing.T) {
 	}
 }
 
-// Documented DIVERGENCE: dense RecordValues has no overflow guard, so the same
-// sequence that packed rejects is silently accepted by dense (its total wraps).
-// This pins the intentional difference rather than papering over it.
-func TestCov_recorderr_OverflowDivergesFromDense(t *testing.T) {
+// #113: dense and packed RecordValues both reject a count that would overflow
+// the total, leaving the histogram unchanged.
+func TestCov_recorderr_OverflowMatchesDense(t *testing.T) {
 	v := int64(1234)
 	d := cov_recorderr_newDense()
 	if err := d.RecordValues(v, math.MaxInt64); err != nil {
 		t.Fatalf("dense seed failed: %v", err)
 	}
-	// Dense accepts the overflowing add (no guard) -> total wraps negative.
-	if err := d.RecordValues(v, 1); err != nil {
-		t.Fatalf("dense unexpectedly rejected overflow (divergence assumption broke): %v", err)
+	if err := d.RecordValues(v, 1); err == nil {
+		t.Fatal("dense must reject the overflowing add")
 	}
-	if d.TotalCount() >= 0 {
-		t.Fatalf("expected dense total to wrap negative on overflow, got %d", d.TotalCount())
+	if d.TotalCount() != math.MaxInt64 {
+		t.Fatalf("dense total corrupted: %d", d.TotalCount())
 	}
 
 	// Packed on the same sequence rejects and keeps a sane total.

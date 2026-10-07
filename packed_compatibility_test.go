@@ -188,16 +188,18 @@ func TestPackedCompatibilitySaturatedSourcePreservesBuckets(t *testing.T) {
 	if p.TotalCount() != math.MaxInt64 || p.CountAtValue(0) != math.MaxInt64 || p.CountAtValue(1) != 1 {
 		t.Fatal("decode failed to retain saturated source buckets")
 	}
+	// The dense destination cannot hold the sum, so MergeInto keeps the first
+	// bucket and reports the second as dropped instead of wrapping.
 	dst := hdr.New(1, 10000, 3)
-	if dropped := p.MergeInto(dst); dropped != 0 {
-		t.Fatalf("MergeInto dropped %d", dropped)
+	if dropped := p.MergeInto(dst); dropped != 1 {
+		t.Fatalf("MergeInto dropped %d, want 1", dropped)
 	}
-	if dst.TotalCount() != math.MinInt64 {
-		t.Fatalf("unchecked destination total = %d, want MinInt64", dst.TotalCount())
+	if dst.TotalCount() != math.MaxInt64 {
+		t.Fatalf("destination total = %d, want MaxInt64", dst.TotalCount())
 	}
 	counts := dst.Export().Counts
-	if counts[0] != math.MaxInt64 || counts[1] != 1 {
-		t.Fatal("MergeInto skipped positive source buckets")
+	if counts[0] != math.MaxInt64 || counts[1] != 0 {
+		t.Fatal("MergeInto did not keep the bucket that fits")
 	}
 	encoded, err := p.Encode()
 	if err != nil {
