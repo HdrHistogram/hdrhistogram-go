@@ -49,7 +49,12 @@ func (h *Histogram) Encode(version int32) (buffer []byte, err error) {
 }
 
 // Decode returns a new Histogram by decoding it from a String containing
-// a base64 encoded compressed histogram representation.
+// a base64 encoded compressed histogram representation. It uses the serialized
+// geometry exactly, including zero significant digits; precision outside 0-5
+// and unrepresentable geometry are rejected. Lowest values below 1 are read as
+// 1 for compatibility with streams written by hdrhistogram-go v1.0.0. Any
+// range Go's constructors accept decodes. The conversion ratio is kept as
+// metadata and written back by Encode.
 func Decode(encoded []byte) (rh *Histogram, err error) {
 	var decoded []byte
 	decoded, err = base64.StdEncoding.DecodeString(string(encoded))
@@ -196,7 +201,7 @@ func decodeCompressedFormat(compressedContents []byte, headerSize int) (rh *Hist
 		}
 		return nil, fmt.Errorf("decompressed histogram truncated: got %d bytes, need at least %d", n, headerSize)
 	}
-	cookie, PayloadLength, _, NumberOfSignificantValueDigits, LowestTrackableValue, HighestTrackableValue, _, err := decodeDeCompressedHeaderFormat(header)
+	cookie, PayloadLength, _, NumberOfSignificantValueDigits, LowestTrackableValue, HighestTrackableValue, conversionRatio, err := decodeDeCompressedHeaderFormat(header)
 	if err != nil {
 		return
 	}
@@ -226,6 +231,7 @@ func decodeCompressedFormat(compressedContents []byte, headerSize int) (rh *Hist
 		return nil, fmt.Errorf("PayloadLength should have the same size of the actual payload. got %d want %d", len(payload), PayloadLength)
 	}
 	geometry.counts = make([]int64, geometry.countsLen)
+	geometry.conversionRatio = conversionRatio
 	rh = geometry
 	err = fillCountsArrayFromSourceBuffer(payload, rh)
 	return rh, err

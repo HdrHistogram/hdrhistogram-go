@@ -67,6 +67,20 @@ func (lw *HistogramLogWriter) OutputIntervalHistogram(histogram *Histogram) (err
 // since the epoch. For logging with absolute time stamps, the base time would remain zero ( default ).
 // For logging with relative time stamps (time since a start point), the base time should be set with SetBaseTime(baseTime int64)
 func (lw *HistogramLogWriter) OutputIntervalHistogramWithLogOptions(histogram *Histogram, logOptions *HistogramLogOptions) (err error) {
+	return lw.outputIntervalHistogram(histogram, logOptions)
+}
+
+// intervalLogHistogram is implemented by both dense and packed histograms.
+// EncodeV2 lets logging use their native encoders without converting storage.
+type intervalLogHistogram interface {
+	Tag() string
+	StartTimeMs() int64
+	EndTimeMs() int64
+	Max() int64
+	EncodeV2() ([]byte, error)
+}
+
+func (lw *HistogramLogWriter) outputIntervalHistogram(histogram intervalLogHistogram, logOptions *HistogramLogOptions) (err error) {
 	tag := histogram.Tag()
 	var match bool
 	tagStr := ""
@@ -96,7 +110,7 @@ func (lw *HistogramLogWriter) OutputIntervalHistogramWithLogOptions(histogram *H
 	startTime := (usedStartTime - float64(lw.baseTime)) / 1000.0
 	endTime := (usedEndTime - float64(lw.baseTime)) / 1000.0
 	maxValueAsDouble := float64(histogram.Max()) / maxValueUnitRatio
-	cpayload, err := histogram.Encode(V2CompressedEncodingCookieBase)
+	cpayload, err := histogram.EncodeV2()
 	if err != nil {
 		return
 	}

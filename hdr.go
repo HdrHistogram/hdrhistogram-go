@@ -24,6 +24,9 @@ type Snapshot struct {
 	HighestTrackableValue int64
 	SignificantFigures    int64
 	Counts                []int64
+	// IntegerToDoubleConversionRatio is the V2 integer-to-double conversion
+	// ratio carried as metadata; 0 means the default of 1.
+	IntegerToDoubleConversionRatio float64
 }
 
 // A Histogram is a lossy data structure used to record the distribution of
@@ -45,6 +48,9 @@ type Histogram struct {
 	startTimeMs                 int64
 	endTimeMs                   int64
 	tag                         string
+	// conversionRatio is the V2 integer-to-double conversion ratio read from a
+	// decoded stream; 0 means the default of 1.
+	conversionRatio float64
 }
 
 func (h *Histogram) Tag() string {
@@ -761,6 +767,8 @@ func (h *Histogram) Export() *Snapshot {
 		HighestTrackableValue: h.highestTrackableValue,
 		SignificantFigures:    h.significantFigures,
 		Counts:                append([]int64(nil), h.counts...), // copy
+
+		IntegerToDoubleConversionRatio: h.conversionRatio,
 	}
 }
 
@@ -793,6 +801,7 @@ func Import(s *Snapshot) *Histogram {
 		}
 	}
 	h.totalCount = totalCount
+	h.conversionRatio = s.IntegerToDoubleConversionRatio
 	return h
 }
 
@@ -900,8 +909,16 @@ func (h *Histogram) countsIndexFor(v int64) int {
 	return int(h.countsIndex(bucketIdx, subBucketIdx))
 }
 
+// getIntegerToDoubleValueConversionRatio returns the V2 conversion ratio this
+// histogram carries as metadata. Counts are always integer bucket counts; a
+// ratio read from a stream (for example one written by Java's
+// DoubleHistogram-based tools) is preserved so that re-encoding writes it back.
+// The zero value means the default ratio of 1.
 func (h *Histogram) getIntegerToDoubleValueConversionRatio() float64 {
-	return 1.0
+	if h.conversionRatio == 0 {
+		return 1.0
+	}
+	return h.conversionRatio
 }
 
 type iterator struct {
