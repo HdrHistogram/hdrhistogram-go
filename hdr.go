@@ -106,12 +106,11 @@ func wireGeometry(lowestDiscernibleValue, highestTrackableValue int64, numberOfS
 	if numberOfSignificantValueDigits < 0 || numberOfSignificantValueDigits > 5 {
 		return nil, fmt.Errorf("significant digits must be between 0 and 5, got %d", numberOfSignificantValueDigits)
 	}
-	if lowestDiscernibleValue < 0 {
-		return nil, fmt.Errorf("lowest discernible value must not be negative, got %d", lowestDiscernibleValue)
-	}
-	if lowestDiscernibleValue == 0 {
-		// hdrhistogram-go v1.0.x wrote New(0, ...) as 0 on the wire. 0 and 1
-		// give the same geometry (unit magnitude 0), so read it as 1.
+	if lowestDiscernibleValue < 1 {
+		// hdrhistogram-go v1.0.0 did not clamp New's lowest value and wrote 0
+		// or negative values on the wire, while building the geometry of a
+		// lowest value of 1 (unit magnitude 0). Read them as 1, which keeps
+		// every count index's meaning.
 		lowestDiscernibleValue = 1
 	}
 	sig := int(numberOfSignificantValueDigits)

@@ -60,13 +60,13 @@ func TestDecodeJavaZeroDigitStreams(t *testing.T) {
 	}
 }
 
-// Serialized geometry outside the format's range is rejected, not clamped.
-// (A lowest value of 0 is accepted: see TestDecodeGoV100LowestZeroStream.)
-func TestDecodeRejectsInvalidWireDigitsAndLowest(t *testing.T) {
+// Serialized significant digits outside 0-5 are rejected, not clamped. (A
+// lowest value below 1 is read as 1: see TestDecodeGoV100LowestBelowOne.)
+func TestDecodeRejectsInvalidWireDigits(t *testing.T) {
 	for _, tc := range []struct {
 		low int64
 		sig int32
-	}{{1, -1}, {1, 6}, {-1, 3}, {-5, 3}} {
+	}{{1, -1}, {1, 6}, {1, 100}, {1, math.MinInt32}} {
 		enc := buildPackedV2Stream(tc.low, 1000, tc.sig, 0, 0, 0, nil)
 		if _, err := Decode(enc); err == nil || !strings.Contains(err.Error(), "corrupt histogram header") {
 			t.Errorf("Decode(low %d, sig %d) err = %v", tc.low, tc.sig, err)
@@ -209,19 +209,26 @@ func TestPackedMergeDroppedSaturates(t *testing.T) {
 	}
 }
 
-// Released hdrhistogram-go v1.0.x did not clamp New(0, ...) and wrote a lowest
-// value of 0 on the wire; such streams must keep decoding. Produced by v1.0.0:
-// New(0, 3600000000, 3) with 0, 1, 100, 12345 and 3600000000 recorded.
-const goV100LowestZero = "HISTFAAAADR42pJpmSzMwMDAw8DAwMjAwMDMgASuTV7CYP8BwmZiOszIdNiN6foiJiZAAAAA//+dhgfl"
+// Released hdrhistogram-go v1.0.0 did not clamp New's lowest value and wrote
+// 0 or negative values on the wire (with the geometry of a lowest value of 1);
+// such streams must keep decoding. Produced by v1.0.0: New(low, 3600000000, 3)
+// for low = 0, -1 and -1000, with 0, 1, 100, 12345 and 3600000000 recorded.
+var goV100LowestBelowOne = []string{
+	"HISTFAAAADR42pJpmSzMwMDAw8DAwMjAwMDMgASuTV7CYP8BwmZiOszIdNiN6foiJiZAAAAA//+dhgfl",
+	"HISTFAAAADh42pJpmSzMwMDAw8DAwMjAwMD8HwoYGBgYrk1ewmD/gQEMmJgOMzIddmO6voiJCRAAAP//oJEP3Q==",
+	"HISTFAAAADp42pJpmSzMwMDAw8DAwMjAwMD8Hwz+SDAwMDBcm7yEwf4DAxgwMR1mZDrsxnR9ERMTIAAA//+GDA7z",
+}
 
-func TestDecodeGoV100LowestZeroStream(t *testing.T) {
-	d, err := Decode([]byte(goV100LowestZero))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if d.TotalCount() != 5 || d.Min() != 0 || d.Max() != 3600809983 || d.ValueAtQuantile(50) != 100 {
-		t.Fatalf("dense: total %d min %d max %d p50 %d, want 5 0 3600809983 100",
-			d.TotalCount(), d.Min(), d.Max(), d.ValueAtQuantile(50))
+func TestDecodeGoV100LowestBelowOne(t *testing.T) {
+	for _, wire := range goV100LowestBelowOne {
+		d, err := Decode([]byte(wire))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if d.TotalCount() != 5 || d.Min() != 0 || d.Max() != 3600809983 || d.ValueAtQuantile(50) != 100 {
+			t.Fatalf("dense: total %d min %d max %d p50 %d, want 5 0 3600809983 100",
+				d.TotalCount(), d.Min(), d.Max(), d.ValueAtQuantile(50))
+		}
 	}
 	// DecodePacked is not checked here: Go before #66 also wrote a
 	// normalizingIndexOffset of 1, which DecodePacked rejects (see #88).
@@ -246,7 +253,7 @@ func TestImportKeepsZeroDigitGeometry(t *testing.T) {
 }
 
 // #90 across the remaining merge paths: the re-recording (different
-// indexing) paths of MergeInto and Merge.
+// indexing) paths of MergeInto and Merge, and dense Histogram.Merge.
 func TestMergeDroppedSaturatesOnEveryPath(t *testing.T) {
 	maxCount := []byte{0xfe, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff}
 	payload := append(zig_zag_encode_i64(-4000), append(append(append([]byte{}, maxCount...), maxCount...), 4)...)
@@ -266,7 +273,17 @@ func TestMergeDroppedSaturatesOnEveryPath(t *testing.T) {
 	if d := packed.Merge(src); d != math.MaxInt64 {
 		t.Fatalf("Merge (re-record path) dropped %d, want MaxInt64", d)
 	}
-	// Dense Histogram.Merge also saturates, but cannot reach a wrapped sum:
-	// a dense source whose counts exceed MaxInt64 has a wrapped total, and its
-	// iterator stops once it has visited that many values.
+	// Dense Histogram.Merge: a source whose counts sum past int64 but whose
+	// wrapped total is still large and positive is fully iterated, and every
+	// bucket is out of the destination's range.
+	from := New(1, 10000, 3)
+	for _, vc := range [][2]int64{{5000, math.MaxInt64 - 10}, {6000, math.MaxInt64}, {7000, math.MaxInt64}, {8000, 7}} {
+		from.setCountAtIndex(from.countsIndexFor(vc[0]), vc[1])
+	}
+	if from.TotalCount() <= 0 {
+		t.Fatalf("setup: wrapped total %d should be positive", from.TotalCount())
+	}
+	if d := New(1, 2048, 3).Merge(from); d != math.MaxInt64 {
+		t.Fatalf("dense Merge dropped %d, want MaxInt64", d)
+	}
 }
