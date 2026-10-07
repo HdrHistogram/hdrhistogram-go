@@ -218,6 +218,9 @@ func TestPackedCloneIndependent(t *testing.T) {
 			if clone.geom == p.geom || clone.geom.counts != nil {
 				t.Fatal("clone must have independent sparse geometry")
 			}
+			if &clone.idx[0] == &p.idx[0] || &clone.cnt[0] == &p.cnt[0] {
+				t.Fatal("clone must not share sparse storage")
+			}
 			if clone.LowestTrackableValue() != p.LowestTrackableValue() || clone.HighestTrackableValue() != p.HighestTrackableValue() || clone.SignificantFigures() != p.SignificantFigures() {
 				t.Fatal("clone changed geometry")
 			}

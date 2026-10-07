@@ -110,8 +110,7 @@ func TestPackedCompatibilityRejectsShiftedJavaFixture(t *testing.T) {
 	}
 }
 
-// Produced by C with conversion_ratio=2.5. Go preserves the integer buckets
-// but deliberately does not retain this scale metadata on a round trip.
+// Produced by C with conversion_ratio=2.5.
 // The V2 conversion ratio is metadata: counts stay integer bucket counts, and
 // both encoders write back the ratio a stream was decoded with.
 func TestCompatibilityPreservesCConversionRatio(t *testing.T) {
