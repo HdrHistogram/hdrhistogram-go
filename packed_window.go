@@ -20,6 +20,9 @@ func (p *PackedHistogram) Reset() {
 	p.cnt = p.cnt[:0]
 	p.size = 0
 	p.totalCount = 0
+	p.geom.startTimeMs = 0
+	p.geom.endTimeMs = 0
+	p.geom.tag = ""
 }
 
 // ForEachBucket calls fn once per populated bucket, in ascending value order,
@@ -47,10 +50,15 @@ func sameIndexing(a, b *Histogram) bool {
 }
 
 // MergeInto adds this histogram's counts to dst and returns the total count
-// that dst could not hold. The result is exactly that of dst.Merge applied to
-// the dense equivalent of p: each populated bucket is recorded at its value,
-// and buckets whose value is out of dst's range are dropped. As with
-// Histogram.Merge, counts are added without overflow checks.
+// that dst could not hold. For a source whose bucket-count sum fits in int64,
+// the result matches dst.Merge applied to its dense equivalent: each populated
+// bucket is recorded at its value, and buckets outside dst's range are dropped.
+// As with Histogram.Merge, destination counts are added without overflow checks.
+//
+// DecodePacked can preserve positive buckets whose sum exceeds MaxInt64 while
+// saturating TotalCount. MergeInto visits all of these buckets too; dense Merge
+// may stop early when its source total has wrapped, so exact dense parity is
+// not promised for such sources. Destination counts and totals can wrap.
 //
 // When dst indexes values the same way (the same significant digits and the
 // same unit magnitude, floor(log2(lowestDiscernibleValue))), counts are added
