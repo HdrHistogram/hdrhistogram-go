@@ -32,6 +32,13 @@ type Snapshot struct {
 // A Histogram is a lossy data structure used to record the distribution of
 // non-normally distributed data (like latency) with a high degree of accuracy
 // and a bounded degree of precision.
+//
+// A Histogram must not be copied by value after it is created: a struct copy
+// shares the counts array but keeps its own total, so recording into or
+// resetting one makes the other inconsistent. Use Clone (or Import(h.Export()))
+// for an independent snapshot. A Histogram provides no internal
+// synchronization: concurrent reads are safe only while nothing mutates it, and
+// callers must synchronize recording, Reset and Merge against all other use.
 type Histogram struct {
 	lowestDiscernibleValue      int64
 	highestTrackableValue       int64
@@ -771,7 +778,54 @@ func (h *Histogram) Export() *Snapshot {
 	}
 }
 
-// Import returns a new Histogram populated from the Snapshot data.
+// Clone returns an independent deep copy of h: the same geometry, counts,
+// total, conversion ratio, tag and start/end times, with its own storage.
+// Unlike a struct copy, later changes to either histogram do not affect the
+// other.
+func (h *Histogram) Clone() *Histogram {
+	c := *h
+	c.counts = append([]int64(nil), h.counts...)
+	return &c
+}
+
+// Validate reports whether the snapshot can be imported without losing or
+// misinterpreting data: its geometry must be representable (0-5 significant
+// digits, as on the wire), every count must be non-negative, counts beyond the
+// geometry's range must be zero (Import would drop them), and the counts must
+// sum to at most math.MaxInt64. Validate untrusted snapshots, for example ones
+// decoded from JSON, before passing them to Import.
+func (s *Snapshot) Validate() error {
+	if s.SignificantFigures < 0 || s.SignificantFigures > 5 {
+		return fmt.Errorf("significant figures must be between 0 and 5, got %d", s.SignificantFigures)
+	}
+	g, err := wireGeometry(s.LowestTrackableValue, s.HighestTrackableValue, int32(s.SignificantFigures))
+	if err != nil {
+		return err
+	}
+	var total int64
+	for i, c := range s.Counts {
+		if c < 0 {
+			return fmt.Errorf("count at index %d is negative: %d", i, c)
+		}
+		if c == 0 {
+			continue
+		}
+		if i >= int(g.countsLen) {
+			return fmt.Errorf("count at index %d is beyond the histogram's %d counts", i, g.countsLen)
+		}
+		if c > math.MaxInt64-total {
+			return fmt.Errorf("counts sum past MaxInt64 at index %d", i)
+		}
+		total += c
+	}
+	return nil
+}
+
+// Import returns a new Histogram populated from the Snapshot data. It never
+// fails; use Snapshot.Validate first for snapshots that may be invalid.
+// Negative counts, which a valid snapshot never holds, are imported as zero so
+// that the histogram's total always matches its counts, and counts beyond the
+// geometry's range are dropped.
 func Import(s *Snapshot) *Histogram {
 	// A snapshot's counts are indexed by its exact geometry. Decoded histograms
 	// can have 0 significant digits, which New would clamp to 1 and so remap
@@ -797,6 +851,11 @@ func Import(s *Snapshot) *Histogram {
 		countAtIndex := h.counts[i]
 		if countAtIndex > 0 {
 			totalCount += countAtIndex
+		} else if countAtIndex < 0 {
+			// Keep the counts consistent with the total, which has always
+			// excluded negative counts: an inconsistent pair makes percentile
+			// queries scan for a rank the counts cannot reach.
+			h.counts[i] = 0
 		}
 	}
 	h.totalCount = totalCount
