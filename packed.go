@@ -215,6 +215,9 @@ func (p *PackedHistogram) RecordValue(v int64) error {
 // RecordValues records n occurrences of v, returning an error if v is out of
 // range, n is negative, or the total would overflow int64.
 func (p *PackedHistogram) RecordValues(v, n int64) error {
+	if v < 0 {
+		return fmt.Errorf("value %d is negative and cannot be recorded", v)
+	}
 	g := p.geom
 	ci := int32(g.countsIndexFor(v))
 	if uint32(ci) >= uint32(g.countsLen) {

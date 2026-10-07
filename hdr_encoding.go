@@ -207,10 +207,10 @@ func decodeCompressedFormat(compressedContents []byte, headerSize int) (rh *Hist
 	if PayloadLength < 0 {
 		return nil, fmt.Errorf("negative PayloadLength: %d", PayloadLength)
 	}
-	if err = checkGeometry(LowestTrackableValue, int(NumberOfSignificantValueDigits)); err != nil {
+	geometry, err := wireGeometry(LowestTrackableValue, HighestTrackableValue, NumberOfSignificantValueDigits)
+	if err != nil {
 		return nil, fmt.Errorf("corrupt histogram header: %v", err)
 	}
-	geometry := newGeometry(LowestTrackableValue, HighestTrackableValue, int(NumberOfSignificantValueDigits))
 	// A valid payload holds at most one zig-zag LEB128 varint (<= 9 bytes) per
 	// counts index.
 	if maxPayload := int64(geometry.countsLen) * 9; int64(PayloadLength) > maxPayload {

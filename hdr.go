@@ -95,6 +95,36 @@ func newGeometry(lowestDiscernibleValue, highestTrackableValue int64, numberOfSi
 		panic("hdrhistogram: " + err.Error())
 	}
 	lowestDiscernibleValue, numberOfSignificantValueDigits = clampGeometryArgs(lowestDiscernibleValue, numberOfSignificantValueDigits)
+	return newExactGeometry(lowestDiscernibleValue, highestTrackableValue, numberOfSignificantValueDigits)
+}
+
+// wireGeometry builds the geometry a serialized header declares, without the
+// argument clamping New applies: clamping would change the meaning of every
+// count index in the payload. Zero significant digits are valid (the Java
+// implementation accepts 0-5); out-of-range values are rejected.
+func wireGeometry(lowestDiscernibleValue, highestTrackableValue int64, numberOfSignificantValueDigits int32) (*Histogram, error) {
+	if numberOfSignificantValueDigits < 0 || numberOfSignificantValueDigits > 5 {
+		return nil, fmt.Errorf("significant digits must be between 0 and 5, got %d", numberOfSignificantValueDigits)
+	}
+	if lowestDiscernibleValue < 1 {
+		// hdrhistogram-go v1.0.0 did not clamp New's lowest value and wrote 0
+		// or negative values on the wire, while building the geometry of a
+		// lowest value of 1 (unit magnitude 0). Read them as 1, which keeps
+		// every count index's meaning.
+		lowestDiscernibleValue = 1
+	}
+	sig := int(numberOfSignificantValueDigits)
+	unitMagnitude, subBucketHalfCountMagnitude := geometryMagnitudes(lowestDiscernibleValue, sig)
+	if unitMagnitude+subBucketHalfCountMagnitude > 61 {
+		return nil, fmt.Errorf("lowestDiscernibleValue %d is too large for %d significant digits", lowestDiscernibleValue, sig)
+	}
+	return newExactGeometry(lowestDiscernibleValue, highestTrackableValue, sig), nil
+}
+
+// newExactGeometry builds the geometry for arguments that are already valid:
+// lowestDiscernibleValue >= 1, 0-5 significant digits, and a representable
+// smallest untrackable value.
+func newExactGeometry(lowestDiscernibleValue, highestTrackableValue int64, numberOfSignificantValueDigits int) *Histogram {
 	unitMagnitude, subBucketHalfCountMagnitude := geometryMagnitudes(lowestDiscernibleValue, numberOfSignificantValueDigits)
 
 	subBucketCount := int32(math.Pow(2, float64(subBucketHalfCountMagnitude)+1))
@@ -184,7 +214,9 @@ func checkGeometry(lowestDiscernibleValue int64, numberOfSignificantValueDigits 
 func getBucketsNeededToCoverValue(smallestUntrackableValue int64, maxValue int64) int32 {
 	// always have at least 1 bucket
 	bucketsNeeded := int32(1)
-	for smallestUntrackableValue < maxValue {
+	// <=, as in C and Java: a maxValue equal to the smallest untrackable value
+	// needs one more bucket to be recordable.
+	for smallestUntrackableValue <= maxValue {
 		if smallestUntrackableValue > (math.MaxInt64 / 2) {
 			// next shift will overflow, meaning that bucket could represent values up to ones greater than
 			// math.MaxInt64, so it's the last bucket
@@ -214,7 +246,8 @@ func (h *Histogram) getNormalizingIndexOffset() int32 {
 }
 
 // Merge merges the data stored in the given histogram with the receiver,
-// returning the number of recorded values which had to be dropped.
+// returning the number of recorded values which had to be dropped. The
+// dropped total saturates at math.MaxInt64 rather than wrapping.
 func (h *Histogram) Merge(from *Histogram) (dropped int64) {
 	i := from.rIterator()
 	for i.next() {
@@ -222,7 +255,7 @@ func (h *Histogram) Merge(from *Histogram) (dropped int64) {
 		c := i.countAtIdx
 
 		if h.RecordValues(v, c) != nil {
-			dropped += c
+			dropped = addDropped(dropped, c)
 		}
 	}
 
@@ -349,6 +382,11 @@ func (h *Histogram) RecordCorrectedValue(v, expectedInterval int64) error {
 // RecordValues records n occurrences of the given value, returning an error if
 // the value is out of range or n is negative.
 func (h *Histogram) RecordValues(v, n int64) error {
+	// A negative value can still map to a valid index (bit masking ignores the
+	// sign), which would record it as a huge positive value. Reject it first.
+	if v < 0 {
+		return fmt.Errorf("value %d is negative and cannot be recorded", v)
+	}
 	idx := h.countsIndexFor(v)
 	// Single unsigned comparison instead of two signed ones: a negative idx wraps
 	// to a large unsigned value and is caught by the same bound. Guard against
@@ -728,7 +766,19 @@ func (h *Histogram) Export() *Snapshot {
 
 // Import returns a new Histogram populated from the Snapshot data.
 func Import(s *Snapshot) *Histogram {
-	h := New(s.LowestTrackableValue, s.HighestTrackableValue, int(s.SignificantFigures))
+	// A snapshot's counts are indexed by its exact geometry. Decoded histograms
+	// can have 0 significant digits, which New would clamp to 1 and so remap
+	// every count; build the exact geometry whenever the snapshot's is valid.
+	var h *Histogram
+	if s.SignificantFigures >= 0 && s.SignificantFigures <= 5 {
+		if g, err := wireGeometry(s.LowestTrackableValue, s.HighestTrackableValue, int32(s.SignificantFigures)); err == nil {
+			g.counts = make([]int64, g.countsLen)
+			h = g
+		}
+	}
+	if h == nil {
+		h = New(s.LowestTrackableValue, s.HighestTrackableValue, int(s.SignificantFigures))
+	}
 	// Copy into the histogram's own counts[] (already sized to h.countsLen by New)
 	// rather than aliasing the caller's slice. copy handles a length mismatch
 	// gracefully: a longer Snapshot is truncated to the histogram geometry, and a
