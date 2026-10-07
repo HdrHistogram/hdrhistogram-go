@@ -3,7 +3,7 @@ package hdrhistogram
 // V2-compressed serialization for PackedHistogram. The output is byte-identical
 // to Histogram.Encode(V2CompressedEncodingCookieBase) on an equivalent dense
 // histogram, and DecodePacked accepts streams produced by either encoder, so the
-// sparse variant is wire-compatible with every existing HdrHistogram V2 reader.
+// sparse variant emits the standard V2 wire format.
 // The payload is streamed directly from the sparse backing (no dense array is
 // ever materialized).
 
@@ -89,7 +89,11 @@ func (p *PackedHistogram) Encode() ([]byte, error) {
 
 // DecodePacked decodes a standard V2 compressed (base64) stream into a new
 // PackedHistogram. It rejects a non-zero normalizingIndexOffset (packed
-// histograms are never rotated) rather than mis-indexing it.
+// histograms are never rotated) rather than mis-indexing it. Invalid serialized
+// geometry is rejected instead of applying constructor argument clamping.
+// The conversion ratio is not retained: counts remain in integer bucket units,
+// and re-encoding emits a ratio of 1.0. Valid shifted Java streams are therefore
+// outside the supported subset, and non-default ratios do not round-trip.
 func DecodePacked(encoded []byte) (*PackedHistogram, error) {
 	decoded, err := base64.StdEncoding.DecodeString(string(encoded))
 	if err != nil {
@@ -150,6 +154,9 @@ func decodePackedCompressed(compressed []byte) (rp *PackedHistogram, err error) 
 	}
 	if payloadLen < 0 {
 		return nil, fmt.Errorf("negative PayloadLength: %d", payloadLen)
+	}
+	if err = validateWireGeometry(low, high, sig); err != nil {
+		return nil, fmt.Errorf("corrupt histogram header: %v", err)
 	}
 	if err = checkGeometry(low, int(sig)); err != nil {
 		return nil, fmt.Errorf("corrupt histogram header: %v", err)

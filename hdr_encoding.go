@@ -49,7 +49,9 @@ func (h *Histogram) Encode(version int32) (buffer []byte, err error) {
 }
 
 // Decode returns a new Histogram by decoding it from a String containing
-// a base64 encoded compressed histogram representation.
+// a base64 encoded compressed histogram representation. Invalid serialized
+// geometry is rejected instead of applying New's argument normalization.
+// Conversion-ratio metadata is not retained; re-encoding emits a ratio of 1.0.
 func Decode(encoded []byte) (rh *Histogram, err error) {
 	var decoded []byte
 	decoded, err = base64.StdEncoding.DecodeString(string(encoded))
@@ -206,6 +208,9 @@ func decodeCompressedFormat(compressedContents []byte, headerSize int) (rh *Hist
 	}
 	if PayloadLength < 0 {
 		return nil, fmt.Errorf("negative PayloadLength: %d", PayloadLength)
+	}
+	if err = validateWireGeometry(LowestTrackableValue, HighestTrackableValue, NumberOfSignificantValueDigits); err != nil {
+		return nil, fmt.Errorf("corrupt histogram header: %v", err)
 	}
 	if err = checkGeometry(LowestTrackableValue, int(NumberOfSignificantValueDigits)); err != nil {
 		return nil, fmt.Errorf("corrupt histogram header: %v", err)
