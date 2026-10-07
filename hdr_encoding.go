@@ -49,10 +49,12 @@ func (h *Histogram) Encode(version int32) (buffer []byte, err error) {
 }
 
 // Decode returns a new Histogram by decoding it from a String containing
-// a base64 encoded compressed histogram representation. Invalid serialized
-// ranges and precision are rejected. Lowest values below 1 are read as 1 for
-// compatibility with streams written by hdrhistogram-go v1.0.0.
-// Conversion-ratio metadata is not retained; re-encoding emits a ratio of 1.0.
+// a base64 encoded compressed histogram representation. It uses the serialized
+// geometry exactly, including zero significant digits; precision outside 0-5
+// and unrepresentable geometry are rejected. Lowest values below 1 are read as
+// 1 for compatibility with streams written by hdrhistogram-go v1.0.0. Any
+// range Go's constructors accept decodes. The conversion ratio is kept as
+// metadata and written back by Encode.
 func Decode(encoded []byte) (rh *Histogram, err error) {
 	var decoded []byte
 	decoded, err = base64.StdEncoding.DecodeString(string(encoded))
@@ -199,7 +201,7 @@ func decodeCompressedFormat(compressedContents []byte, headerSize int) (rh *Hist
 		}
 		return nil, fmt.Errorf("decompressed histogram truncated: got %d bytes, need at least %d", n, headerSize)
 	}
-	cookie, PayloadLength, _, NumberOfSignificantValueDigits, LowestTrackableValue, HighestTrackableValue, _, err := decodeDeCompressedHeaderFormat(header)
+	cookie, PayloadLength, _, NumberOfSignificantValueDigits, LowestTrackableValue, HighestTrackableValue, conversionRatio, err := decodeDeCompressedHeaderFormat(header)
 	if err != nil {
 		return
 	}
@@ -209,9 +211,6 @@ func decodeCompressedFormat(compressedContents []byte, headerSize int) (rh *Hist
 	}
 	if PayloadLength < 0 {
 		return nil, fmt.Errorf("negative PayloadLength: %d", PayloadLength)
-	}
-	if err = validateWireRange(LowestTrackableValue, HighestTrackableValue); err != nil {
-		return nil, fmt.Errorf("corrupt histogram header: %v", err)
 	}
 	geometry, err := wireGeometry(LowestTrackableValue, HighestTrackableValue, NumberOfSignificantValueDigits)
 	if err != nil {
@@ -232,6 +231,7 @@ func decodeCompressedFormat(compressedContents []byte, headerSize int) (rh *Hist
 		return nil, fmt.Errorf("PayloadLength should have the same size of the actual payload. got %d want %d", len(payload), PayloadLength)
 	}
 	geometry.counts = make([]int64, geometry.countsLen)
+	geometry.conversionRatio = conversionRatio
 	rh = geometry
 	err = fillCountsArrayFromSourceBuffer(payload, rh)
 	return rh, err

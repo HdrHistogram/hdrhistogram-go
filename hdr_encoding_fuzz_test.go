@@ -45,9 +45,7 @@ func FuzzRecordEncodeDecode(f *testing.F) {
 	f.Add(int64(1), int64(3600000000), uint8(3), int64(1))
 	f.Add(int64(1000), int64(1000000000), uint8(5), int64(999999))
 	f.Fuzz(func(t *testing.T, lo, hi int64, sig uint8, v int64) {
-		// Convenience constructors accept a wider argument domain than the
-		// wire format. Only valid serialized geometries can round-trip.
-		if lo < 1 || hi < 2 || lo > hi/2 || hi > (1<<40) {
+		if lo < 1 || hi <= lo || hi > (1<<40) {
 			t.Skip()
 		}
 		h := New(lo, hi, int(sig%5)+1)

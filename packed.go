@@ -26,8 +26,8 @@ import (
 // by Reset makes an empty sibling with exactly the same geometry. Reconstructing
 // from geometry getters with NewPacked applies constructor normalization, which
 // cannot preserve decoded zero-digit precision. Encode followed by DecodePacked
-// also creates independent storage, but requires valid wire geometry, normalizes
-// conversion-ratio metadata to 1, and does not retain log metadata.
+// also creates independent storage and keeps the conversion ratio, but requires
+// valid wire geometry and does not retain log metadata.
 //
 // PackedHistogram provides no internal synchronization. Concurrent read-only
 // calls are safe only while no goroutine mutates the histogram. Callers must

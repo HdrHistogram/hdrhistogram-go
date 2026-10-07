@@ -63,13 +63,13 @@ func (p *PackedHistogram) Encode() ([]byte, error) {
 	// fail, so there is no error plumbing here). Byte-for-byte the layout
 	// produced by the dense encoder.
 	inner := make([]byte, ENCODING_HEADER_SIZE, ENCODING_HEADER_SIZE+len(payload))
-	binary.BigEndian.PutUint32(inner[0:], uint32(encodingCookie))                    // 0-3
-	binary.BigEndian.PutUint32(inner[4:], uint32(len(payload)))                      // 4-7
-	binary.BigEndian.PutUint32(inner[8:], 0)                                         // 8-11 normalizingIndexOffset
-	binary.BigEndian.PutUint32(inner[12:], uint32(int32(p.geom.significantFigures))) // 12-15
-	binary.BigEndian.PutUint64(inner[16:], uint64(p.geom.lowestDiscernibleValue))    // 16-23
-	binary.BigEndian.PutUint64(inner[24:], uint64(p.geom.highestTrackableValue))     // 24-31
-	binary.BigEndian.PutUint64(inner[32:], math.Float64bits(1.0))                    // 32-39 conversion ratio
+	binary.BigEndian.PutUint32(inner[0:], uint32(encodingCookie))                                             // 0-3
+	binary.BigEndian.PutUint32(inner[4:], uint32(len(payload)))                                               // 4-7
+	binary.BigEndian.PutUint32(inner[8:], 0)                                                                  // 8-11 normalizingIndexOffset
+	binary.BigEndian.PutUint32(inner[12:], uint32(int32(p.geom.significantFigures)))                          // 12-15
+	binary.BigEndian.PutUint64(inner[16:], uint64(p.geom.lowestDiscernibleValue))                             // 16-23
+	binary.BigEndian.PutUint64(inner[24:], uint64(p.geom.highestTrackableValue))                              // 24-31
+	binary.BigEndian.PutUint64(inner[32:], math.Float64bits(p.geom.getIntegerToDoubleValueConversionRatio())) // 32-39 conversion ratio
 	inner = append(inner, payload...)
 
 	var zb bytes.Buffer
@@ -89,13 +89,13 @@ func (p *PackedHistogram) Encode() ([]byte, error) {
 
 // DecodePacked decodes a standard V2 compressed (base64) stream into a new
 // PackedHistogram. It rejects a non-zero normalizingIndexOffset (packed
-// histograms are never rotated) rather than mis-indexing it. Invalid serialized
-// ranges and precision are rejected. Lowest values below 1 are read as 1 for
-// compatibility with hdrhistogram-go v1.0.0 streams; zero-digit geometry is
-// retained exactly instead of applying constructor precision clamping.
-// The conversion ratio is not retained: counts remain in integer bucket units,
-// and re-encoding emits a ratio of 1.0. Valid shifted Java streams are therefore
-// outside the supported subset, and non-default ratios do not round-trip.
+// histograms are never rotated) rather than mis-indexing it, so valid shifted
+// Java streams are outside the supported subset. It uses the serialized
+// geometry exactly, including zero significant digits; precision outside 0-5
+// and unrepresentable geometry are rejected. Lowest values below 1 are read as
+// 1 for compatibility with hdrhistogram-go v1.0.0 streams, and any range Go's
+// constructors accept decodes. The conversion ratio is kept as metadata (counts
+// remain integer bucket counts) and written back by Encode.
 func DecodePacked(encoded []byte) (*PackedHistogram, error) {
 	decoded, err := base64.StdEncoding.DecodeString(string(encoded))
 	if err != nil {
@@ -141,7 +141,7 @@ func decodePackedCompressed(compressed []byte) (rp *PackedHistogram, err error) 
 		}
 		return nil, fmt.Errorf("decompressed histogram truncated: got %d bytes, need at least %d", n, ENCODING_HEADER_SIZE)
 	}
-	cookie, payloadLen, normOff, sig, low, high, _, err := decodeDeCompressedHeaderFormat(hdr)
+	cookie, payloadLen, normOff, sig, low, high, conversionRatio, err := decodeDeCompressedHeaderFormat(hdr)
 	if err != nil {
 		// Defensive: decodeDeCompressedHeaderFormat reads exactly the 40 bytes
 		// guaranteed present by the ReadFull above, so binary.Read cannot
@@ -157,13 +157,11 @@ func decodePackedCompressed(compressed []byte) (rp *PackedHistogram, err error) 
 	if payloadLen < 0 {
 		return nil, fmt.Errorf("negative PayloadLength: %d", payloadLen)
 	}
-	if err = validateWireRange(low, high); err != nil {
-		return nil, fmt.Errorf("corrupt histogram header: %v", err)
-	}
 	geometry, err := wireGeometry(low, high, sig)
 	if err != nil {
 		return nil, fmt.Errorf("corrupt histogram header: %v", err)
 	}
+	geometry.conversionRatio = conversionRatio
 	rp = &PackedHistogram{geom: geometry, width: 1}
 	// A valid payload holds at most one zig-zag LEB128 varint (<= 9 bytes)
 	// per counts index.

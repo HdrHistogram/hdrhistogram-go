@@ -112,7 +112,9 @@ func TestPackedCompatibilityRejectsShiftedJavaFixture(t *testing.T) {
 
 // Produced by C with conversion_ratio=2.5. Go preserves the integer buckets
 // but deliberately does not retain this scale metadata on a round trip.
-func TestPackedCompatibilityNormalizesCConversionRatio(t *testing.T) {
+// The V2 conversion ratio is metadata: counts stay integer bucket counts, and
+// both encoders write back the ratio a stream was decoded with.
+func TestCompatibilityPreservesCConversionRatio(t *testing.T) {
 	fixture := []byte("HISTFAAAACF4nJNpmSzMwMDAzAABMJoRTPI7OTiwQAQWC/MBAEIPAuc=")
 	if got := packedFixtureRatio(t, fixture); got != 2.5 {
 		t.Fatalf("foreign fixture ratio = %v, want 2.5", got)
@@ -125,15 +127,44 @@ func TestPackedCompatibilityNormalizesCConversionRatio(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got := packedFixtureRatio(t, encoded); got != 1 {
-		t.Fatalf("Go ratio = %v, want 1", got)
+	if got := packedFixtureRatio(t, encoded); got != 2.5 {
+		t.Fatalf("packed re-encoded ratio = %v, want 2.5", got)
+	}
+	if clone, _ := p.Clone().Encode(); packedFixtureRatio(t, clone) != 2.5 {
+		t.Fatal("Clone dropped the conversion ratio")
 	}
 	q, err := hdr.DecodePacked(encoded)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if p.TotalCount() == 0 || p.TotalCount() != q.TotalCount() || !reflect.DeepEqual(packedCompatibilityBuckets(p), packedCompatibilityBuckets(q)) {
-		t.Fatal("conversion-ratio normalization changed integer counts")
+		t.Fatal("re-encoding changed integer counts")
+	}
+
+	d, err := hdr.Decode(fixture)
+	if err != nil {
+		t.Fatal(err)
+	}
+	dense, err := d.Encode(hdr.V2CompressedEncodingCookieBase)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := packedFixtureRatio(t, dense); got != 2.5 {
+		t.Fatalf("dense re-encoded ratio = %v, want 2.5", got)
+	}
+	if string(dense) != string(encoded) {
+		t.Fatal("dense and packed re-encodings differ")
+	}
+	if again, _ := hdr.Import(d.Export()).Encode(hdr.V2CompressedEncodingCookieBase); packedFixtureRatio(t, again) != 2.5 {
+		t.Fatal("Export/Import dropped the conversion ratio")
+	}
+
+	// Histograms built by the constructors keep writing the default of 1.
+	if fresh, _ := hdr.NewPacked(1, 1000, 3).Encode(); packedFixtureRatio(t, fresh) != 1 {
+		t.Fatal("NewPacked does not encode a ratio of 1")
+	}
+	if fresh, _ := hdr.New(1, 1000, 3).Encode(hdr.V2CompressedEncodingCookieBase); packedFixtureRatio(t, fresh) != 1 {
+		t.Fatal("New does not encode a ratio of 1")
 	}
 }
 

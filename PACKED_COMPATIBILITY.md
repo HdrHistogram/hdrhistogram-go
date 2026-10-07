@@ -38,21 +38,21 @@ Go stores bucket counts, so zero and one are indistinguishable at this geometry.
 |---|---|---|---|
 | Lowest value below 1 | Clamped to 1 | Rejected | Rejected |
 | Constructor precision | Clamped to 1–5 | Requires 1–5 | Requires 0–5 |
-| Highest value below twice the lowest | Permitted by constructor | Rejected | Rejected |
+| Highest value below twice the lowest | Permitted by constructor; streams decode | Rejected | Rejected |
 | Value above the configured maximum but inside the allocated buckets | Accepted | Rejected | Accepted |
 
 For example, `NewPacked(1, 1000, 3).RecordValue(1001)` succeeds in Go, as does recording `1000` into `NewPacked(0, -1, 6)`. The latter constructor normalizes the lowest value to 1 and precision to 5, while retaining the supplied highest value. Geometries that cannot be represented in 64 bits can still panic; permissive construction is not unrestricted construction. No strict constructor is added here, to preserve existing callers' normalization behavior. Applications needing a stricter configuration policy should validate their configuration before construction.
 
-Constructor normalization does not authorize reinterpreting foreign wire headers. Both decoders preserve serialized precision exactly, including Java's zero-digit geometry, and reject precision outside 0–5 or a highest value below twice the effective lowest value. There is one legacy exception: hdrhistogram-go v1.0.0 wrote lowest values below 1 while using unit magnitude zero, so those fields are read as 1 without changing the bucket mapping. The range is checked against that effective value. A histogram constructed with an invalid highest value can still be encoded but its stream will be rejected on decode. Use valid geometry for portable serialization.
+Constructor normalization does not authorize reinterpreting foreign wire headers. Both decoders preserve serialized precision exactly, including Java's zero-digit geometry, and reject precision outside 0–5 or geometry that cannot be represented in 64 bits. There is one legacy exception: hdrhistogram-go v1.0.0 wrote lowest values below 1 while using unit magnitude zero, so those fields are read as 1 without changing the bucket mapping. The decoders do not reject a highest value below twice the lowest: Go's constructors accept such ranges and Go has always written them, so rejecting them would make existing Go streams and interval logs unreadable. C and Java reject such headers, so use a highest value of at least twice the lowest for streams meant for those readers.
 
 ## V2 interchange
 
-`Encode` writes base64 V2 compressed integer histogram data, using a zero normalizing index offset and a conversion ratio of `1.0`. It emits the same bytes as Go's dense encoder on equivalent data. `DecodePacked` supports V2 compressed streams with valid supported geometry and a zero normalizing index offset. This is a subset of the streams foreign writers can produce.
+`Encode` writes base64 V2 compressed integer histogram data, using a zero normalizing index offset and the histogram's conversion ratio: `1.0` for histograms built with `NewPacked`, or the ratio a decoded stream carried. It emits the same bytes as Go's dense encoder on equivalent data. `DecodePacked` supports V2 compressed streams with valid supported geometry and a zero normalizing index offset. This is a subset of the streams foreign writers can produce.
 
 | Input feature | Go packed policy | Reference behavior |
 |---|---|---|
 | Nonzero `normalizingIndexOffset` | Rejected | C packed also rejects it; Java handles shifted histograms. |
-| Conversion ratio other than 1 | Accepted but discarded; the next encode writes 1 | Go dense and C packed also normalize to 1; Java preserves it. |
+| Conversion ratio other than 1 | Kept as metadata and written back by `Encode`; counts stay integer bucket counts | Go dense also keeps it (including through `Export`/`Import`); Java preserves it; C packed normalizes it to 1. |
 | Positive bucket counts whose sum exceeds `MaxInt64` | Buckets retained; `TotalCount` saturates at `MaxInt64` | C packed also saturates; Go dense can wrap its total. |
 
 For example, Java `shiftValuesLeft(2)` can produce a nonzero offset. Supporting such streams requires verifying the writer's serialization and index semantics; simply removing the guard is not a verified compatibility solution. Re-encoding an accepted ratio-2.5 C stream preserves the integer distribution but loses its scale metadata. Carry unit conversions separately if they are needed; a Go decode/encode cycle is not a metadata-preserving archival operation. The foreign-writer fixtures in `packed_compatibility_test.go` cover both cases.
@@ -71,7 +71,7 @@ sibling.Reset()
 
 `Clone` preserves exact geometry, all sparse bucket counts (including a decoded distribution whose sum exceeds `MaxInt64`), and start/end timestamps and tags. `Reset` then clears counts and log metadata while retaining storage. Geometry getters remain useful for inspecting configuration, but passing them into `NewPacked` preserves only geometries representable by that constructor: constructor precision zero is clamped to one, so this recipe cannot reproduce decoded Java zero-digit geometry. Adding counts with `Merge` also cannot fully copy a saturated source, because recording into a packed destination rejects total overflow.
 
-`Encode` followed by `DecodePacked` also creates independent storage and retains individual decoded bucket counts even when their sum exceeds `MaxInt64`. That path requires valid wire geometry, normalizes conversion-ratio metadata, and does not include interval timestamps or tags in the histogram payload.
+`Encode` followed by `DecodePacked` also creates independent storage and retains individual decoded bucket counts even when their sum exceeds `MaxInt64`. That path requires valid wire geometry, keeps the conversion ratio, and does not include interval timestamps or tags in the histogram payload.
 
 There is no internal synchronization. Concurrent readers are safe only while the histogram is unchanged. Synchronize every mutation, including recording, corrected recording, merges, `Reset`, `Compact` and metadata setters, against readers and other writers. The source of a merge must also remain unchanged while it is read. Distinct pointers produced by a shallow struct copy do not satisfy `Merge`'s independent-storage precondition; `p.Merge(p)` itself is supported.
 
