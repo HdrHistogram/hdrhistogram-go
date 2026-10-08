@@ -45,9 +45,9 @@ type PackedHistogram struct {
 	// repeatedly. Remember the last flat index touched and its position in idx[];
 	// if the next value maps to the same index and idx[lastPos] still holds it,
 	// increment in place and skip the binary search. idx is sorted and unique, so
-	// that recheck makes any cached state safe, including the zero value that
-	// DecodePacked and Clone produce and positions left stale by Reset, Compact or
-	// inserts. NewPacked starts with lastIndex = -1 ("no cached hit").
+	// that recheck makes any cached state safe: the zero value (NewPacked,
+	// DecodePacked), the copy Clone takes along with idx, and positions left stale
+	// by Reset, Compact, Merge or MergeFrom, which do not update the cache.
 	lastIndex int32
 	lastPos   int32
 }
@@ -56,9 +56,8 @@ type PackedHistogram struct {
 // per-instance geometry oracle never allocates a counts array.
 func NewPacked(lowestDiscernibleValue, highestTrackableValue int64, numberOfSignificantValueDigits int) *PackedHistogram {
 	return &PackedHistogram{
-		geom:      newGeometry(lowestDiscernibleValue, highestTrackableValue, numberOfSignificantValueDigits),
-		width:     1,
-		lastIndex: -1,
+		geom:  newGeometry(lowestDiscernibleValue, highestTrackableValue, numberOfSignificantValueDigits),
+		width: 1,
 	}
 }
 
@@ -258,7 +257,7 @@ func (p *PackedHistogram) RecordValues(v, n int64) error {
 		// (the recheck keeps this correct across earlier insert shifts, and width
 		// widening leaves idx positions fixed), increment in place and skip the
 		// binary search. Effect is identical to the sparseAdd search path.
-		if p.lastIndex >= 0 && p.lastIndex == ci && p.lastPos < p.size && p.idx[p.lastPos] == ci {
+		if p.lastIndex == ci && p.lastPos < p.size && p.idx[p.lastPos] == ci {
 			p.addAtExisting(p.lastPos, n)
 		} else {
 			pos := p.sparseAdd(ci, n)

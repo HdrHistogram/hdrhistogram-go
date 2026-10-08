@@ -7,7 +7,7 @@ import (
 
 // The last-hit write cache must give the same counts as the binary-search path after
 // every operation that can leave it stale: inserts that shift idx, Reset, Compact,
-// Merge, and the zero-valued cache of Clone and DecodePacked.
+// Merge and MergeFrom, the cache Clone copies, and the zero-valued cache of DecodePacked.
 func TestPackedLastHitCacheStaysCorrect(t *testing.T) {
 	rng := rand.New(rand.NewSource(3))
 	p := NewPacked(1, 1_000_000, 3)
@@ -38,7 +38,7 @@ func TestPackedLastHitCacheStaysCorrect(t *testing.T) {
 	burst := func() {
 		v := rng.Int63n(1_000_000) + 1
 		for i := 0; i < 1+rng.Intn(20); i++ {
-			record(v, 1+rng.Int63n(300)) // repeats hit the cache; large n widens the count width
+			record(v, 1+rng.Int63n(300)) // repeats hit the cache
 			if rng.Intn(4) == 0 {
 				record(rng.Int63n(v)+1, 1) // insert below v shifts v's position in idx
 			}
@@ -71,9 +71,15 @@ func TestPackedLastHitCacheStaysCorrect(t *testing.T) {
 				t.Fatal(err)
 			}
 		case 4:
-			if round%12 == 4 {
-				p.Reset()
-				d.Reset()
+			p.Reset()
+			d.Reset()
+		case 5:
+			// MergeFrom also inserts below the cached bucket without updating the cache.
+			src := New(1, 1_000_000, 3)
+			_ = src.RecordValues(rng.Int63n(last)+1, 3)
+			_ = src.RecordValues(rng.Int63n(last)+1, 4)
+			if p.MergeFrom(src) != 0 || d.Merge(src) != 0 {
+				t.Fatal("MergeFrom dropped counts")
 			}
 		}
 		check("after operation")
@@ -90,4 +96,22 @@ func denseCounts(p *PackedHistogram) []int64 {
 		out[p.idx[i]] = p.slotGet(i)
 	}
 	return out
+}
+
+// The cache must actually hit: after recording a value, lastPos points at its bucket,
+// including when inserts below it shift its position.
+func TestPackedLastHitCacheHits(t *testing.T) {
+	p := NewPacked(1, 1_000_000, 3)
+	for _, v := range []int64{5000, 5000, 10, 5000, 20, 5000, 5000} {
+		if err := p.RecordValue(v); err != nil {
+			t.Fatal(err)
+		}
+		ci := int32(p.geom.countsIndexFor(v))
+		if p.lastIndex != ci || p.lastPos >= p.size || p.idx[p.lastPos] != ci {
+			t.Fatalf("after recording %d: cache (%d, %d) does not point at its bucket", v, p.lastIndex, p.lastPos)
+		}
+	}
+	if p.CountAtValue(5000) != 5 || p.TotalCount() != 7 {
+		t.Fatalf("count(5000) %d total %d, want 5 and 7", p.CountAtValue(5000), p.TotalCount())
+	}
 }
