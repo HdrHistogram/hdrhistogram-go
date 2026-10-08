@@ -100,6 +100,17 @@ func FuzzPercentileQueries(f *testing.F) {
 		// negative clamp lands; here we guard the read path against crashes.)
 		_ = h.ValueAtPercentile(pct)
 		_ = h.ValueAtQuantile(pct)
+		// The multi-percentile scan must agree with the single-percentile path.
+		ps := []float64{pct, 0, 50, 100}
+		got := h.ValueAtPercentiles(append([]float64(nil), ps...))
+		for _, p := range ps {
+			if p != p { // NaN keys cannot be read back from the map
+				continue
+			}
+			if want := h.ValueAtPercentile(p); got[p] != want {
+				t.Fatalf("ValueAtPercentiles[%v] = %d, ValueAtPercentile = %d", p, got[p], want)
+			}
+		}
 	})
 }
 
