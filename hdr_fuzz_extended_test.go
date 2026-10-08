@@ -111,6 +111,13 @@ func FuzzPercentileQueries(f *testing.F) {
 				t.Fatalf("ValueAtPercentiles[%v] = %d, ValueAtPercentile = %d", p, got[p], want)
 			}
 		}
+		// Same for the slice variant, in input order and with an unsorted argument.
+		unsorted := []float64{100, pct, 50, 0}
+		for i, v := range h.ValueAtPercentilesSlice(unsorted) {
+			if want := h.ValueAtPercentile(unsorted[i]); v != want {
+				t.Fatalf("ValueAtPercentilesSlice[%d] (p=%v) = %d, ValueAtPercentile = %d", i, unsorted[i], v, want)
+			}
+		}
 	})
 }
 
