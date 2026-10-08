@@ -1,6 +1,7 @@
 package hdrhistogram
 
 import (
+	"math"
 	"testing"
 )
 
@@ -89,6 +90,7 @@ func FuzzDecodeInvariants(f *testing.F) {
 func FuzzPercentileQueries(f *testing.F) {
 	f.Add(int64(1), int64(1000000), uint8(3), int64(500), float64(50))
 	f.Add(int64(100), int64(10000000), uint8(3), int64(777), float64(-1))
+	f.Add(int64(1), int64(1000000), uint8(3), int64(500), math.NaN())
 	f.Fuzz(func(t *testing.T, lo, hi int64, sig uint8, v int64, pct float64) {
 		if lo < 1 || hi <= lo || hi > (1<<40) {
 			t.Skip()
@@ -109,6 +111,16 @@ func FuzzPercentileQueries(f *testing.F) {
 			}
 			if want := h.ValueAtPercentile(p); got[p] != want {
 				t.Fatalf("ValueAtPercentiles[%v] = %d, ValueAtPercentile = %d", p, got[p], want)
+			}
+		}
+		// Same for the slice variant, in input order, with unsorted and sorted arguments. A second,
+		// larger sample gives the ranks distinct values, so the unsorted path actually runs.
+		_ = h.RecordValues(clampVal(hi, lo, hi), 3)
+		for _, list := range [][]float64{{100, pct, 50, 0}, {0, 50, pct, 100}} {
+			for i, v := range h.ValueAtPercentilesSlice(list) {
+				if want := h.ValueAtPercentile(list[i]); v != want {
+					t.Fatalf("ValueAtPercentilesSlice(%v)[%d] = %d, ValueAtPercentile = %d", list, i, v, want)
+				}
 			}
 		}
 	})

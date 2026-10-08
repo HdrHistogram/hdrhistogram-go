@@ -85,6 +85,25 @@ func BenchmarkHistogramValueAtPercentilesGivenPercentileSlice(b *testing.B) {
 	}
 }
 
+// nolint
+func benchmarkValueAtPercentilesSlice(b *testing.B, percentiles []float64) {
+	rand.Seed(12345)
+	h, _ := populateHistogramLogNormalDist(b, 1, 1000000, 3, 1000000)
+	b.ResetTimer()
+	b.ReportAllocs()
+	for i := 0; i < b.N; i++ {
+		h.ValueAtPercentilesSlice(percentiles)
+	}
+}
+
+func BenchmarkHistogramValueAtPercentilesSliceSorted(b *testing.B) {
+	benchmarkValueAtPercentilesSlice(b, []float64{50.0, 95.0, 99.0, 99.9})
+}
+
+func BenchmarkHistogramValueAtPercentilesSliceUnsorted(b *testing.B) {
+	benchmarkValueAtPercentilesSlice(b, []float64{99.0, 50.0, 99.9, 95.0})
+}
+
 func BenchmarkWindowedHistogramRecordAndRotate(b *testing.B) {
 	w := hdrhistogram.NewWindowed(3, 1, 10000000, 3)
 	b.ReportAllocs()
