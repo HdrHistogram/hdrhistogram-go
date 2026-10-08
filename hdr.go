@@ -668,43 +668,51 @@ func (h *Histogram) ValueAtPercentilesSlice(percentiles []float64) []int64 {
 		return result
 	}
 
-	countAtPercentiles := make([]int64, n)
-	for i, percentile := range percentiles {
-		countAtPercentiles[i] = percentileRank(percentile, h.totalCount)
-	}
 	if h.totalCount == 0 {
 		return result // all zeros
 	}
+	targets := make([]int64, n)
+	ascending := true
+	for i, percentile := range percentiles {
+		targets[i] = percentileRank(percentile, h.totalCount)
+		if i > 0 && targets[i] < targets[i-1] {
+			ascending = false
+		}
+	}
 
-	// Resolve in ascending target order (preserving input order via the permutation),
-	// hoisting the next target so the scan stays a tight range loop.
+	// percentile <= 0 clamps to the 0th percentile, which uses the lowest equivalent
+	// value (matching ValueAtPercentile); anything above uses the highest equivalent value.
+	if ascending {
+		resolved := h.scanTargets(targets)
+		for i := 0; i < resolved; i++ {
+			value := h.valueFromFlatIndex(int32(targets[i]))
+			if percentiles[i] <= 0.0 {
+				result[i] = h.lowestEquivalentValue(value)
+			} else {
+				result[i] = h.highestEquivalentValue(value)
+			}
+		}
+		return result
+	}
+
+	// Resolve in ascending target order, writing back through the permutation to keep input order.
 	order := make([]int, n)
 	for i := range order {
 		order[i] = i
 	}
-	sort.SliceStable(order, func(a, b int) bool { return countAtPercentiles[order[a]] < countAtPercentiles[order[b]] })
-
-	total := int64(0)
-	pos := 0
-	nextTarget := countAtPercentiles[order[0]]
-	for idx, c := range h.counts {
-		total += c
-		for total >= nextTarget {
-			oi := order[pos]
-			value := h.valueFromFlatIndex(int32(idx))
-			// percentile <= 0 clamps to the 0th percentile, which uses the lowest
-			// equivalent value (matching ValueAtPercentile); anything above uses the
-			// highest equivalent value.
-			if percentiles[oi] <= 0.0 {
-				result[oi] = h.lowestEquivalentValue(value)
-			} else {
-				result[oi] = h.highestEquivalentValue(value)
-			}
-			pos++
-			if pos >= n {
-				return result
-			}
-			nextTarget = countAtPercentiles[order[pos]]
+	sort.SliceStable(order, func(a, b int) bool { return targets[order[a]] < targets[order[b]] })
+	sorted := make([]int64, n)
+	for k, oi := range order {
+		sorted[k] = targets[oi]
+	}
+	resolved := h.scanTargets(sorted)
+	for k := 0; k < resolved; k++ {
+		oi := order[k]
+		value := h.valueFromFlatIndex(int32(sorted[k]))
+		if percentiles[oi] <= 0.0 {
+			result[oi] = h.lowestEquivalentValue(value)
+		} else {
+			result[oi] = h.highestEquivalentValue(value)
 		}
 	}
 	return result

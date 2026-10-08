@@ -2,6 +2,7 @@ package hdrhistogram_test
 
 import (
 	"math/rand"
+	"sort"
 	"testing"
 
 	hdr "github.com/HdrHistogram/hdrhistogram-go"
@@ -54,5 +55,45 @@ func TestValueAtPercentilesEmptyInputs(t *testing.T) {
 	_ = h.RecordValue(42)
 	if got := h.ValueAtPercentiles([]float64{}); len(got) != 0 {
 		t.Fatalf("empty percentiles: %v", got)
+	}
+}
+
+// ValueAtPercentilesSlice must agree with the single-percentile query in input order,
+// for sorted, unsorted and duplicated inputs, and must not modify its argument.
+func TestValueAtPercentilesSliceMatchesSingle(t *testing.T) {
+	rng := rand.New(rand.NewSource(2))
+	for _, g := range []struct {
+		low, high int64
+		sig       int
+	}{{1, 1_000_000, 3}, {1, 1_000_000_000, 2}, {100, 100_000_000, 3}, {1, 10, 1}} {
+		for round := 0; round < 40; round++ {
+			h := hdr.New(g.low, g.high, g.sig)
+			for i := 0; i < []int{0, 1, 5, 20000}[round%4]; i++ {
+				_ = h.RecordValues(rng.Int63n(rng.Int63n(g.high)+1)+1, rng.Int63n(4)+1)
+			}
+			ps := []float64{0, 100, 100, 150, -3, 50, 99.9999}
+			for i := rng.Intn(6); i > 0; i-- {
+				ps = append(ps, rng.Float64()*100)
+			}
+			if round%2 == 0 {
+				sort.Float64s(ps)
+			} else {
+				rng.Shuffle(len(ps), func(a, b int) { ps[a], ps[b] = ps[b], ps[a] })
+			}
+			in := append([]float64(nil), ps...)
+			got := h.ValueAtPercentilesSlice(in)
+			for i := range ps {
+				if in[i] != ps[i] {
+					t.Fatalf("input modified at %d", i)
+				}
+				want := h.ValueAtPercentile(ps[i])
+				if h.TotalCount() == 0 {
+					want = 0
+				}
+				if got[i] != want {
+					t.Fatalf("geometry %+v round %d: Slice[%d] (p=%v) = %d, single = %d", g, round, i, ps[i], got[i], want)
+				}
+			}
+		}
 	}
 }
