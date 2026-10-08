@@ -41,6 +41,15 @@ type PackedHistogram struct {
 	width      uint8      // count byte width: 1, 2, 4, 8
 	size       int32      // populated buckets (== len(idx))
 	totalCount int64
+	// last-hit cache: on a bursty/hot stream the same flat index is recorded
+	// repeatedly. Remember the last flat index touched and its position in idx[];
+	// if the next value maps to the same index and idx[lastPos] still holds it,
+	// increment in place and skip the binary search. idx is sorted and unique, so
+	// that recheck makes any cached state safe: the zero value (NewPacked,
+	// DecodePacked), the copy Clone takes along with idx, and positions left stale
+	// by Reset, Compact, Merge or MergeFrom, which do not update the cache.
+	lastIndex int32
+	lastPos   int32
 }
 
 // NewPacked creates a sparse histogram with the same arguments as New. Its
@@ -141,40 +150,48 @@ func (p *PackedHistogram) lowerBound(key int32) int32 {
 	return base
 }
 
+// addAtExisting increments the count of an already-populated bucket at position
+// pos by delta (>= 0), widening the uniform count width in place when the value
+// crosses the current width boundary. Widening leaves idx positions fixed, so a
+// caller's cached position stays valid across the call.
+func (p *PackedHistogram) addAtExisting(pos int32, delta int64) {
+	off := int(pos) * int(p.width)
+	switch p.width {
+	case 1:
+		if nv := int64(p.cnt[off]) + delta; nv <= 0xFF {
+			p.cnt[off] = byte(nv)
+		} else {
+			p.widenToFit(nv)
+			p.slotSet(pos, nv)
+		}
+	case 2:
+		if nv := int64(binary.LittleEndian.Uint16(p.cnt[off:])) + delta; nv <= 0xFFFF {
+			binary.LittleEndian.PutUint16(p.cnt[off:], uint16(nv))
+		} else {
+			p.widenToFit(nv)
+			p.slotSet(pos, nv)
+		}
+	case 4:
+		if nv := int64(binary.LittleEndian.Uint32(p.cnt[off:])) + delta; nv <= 0xFFFFFFFF {
+			binary.LittleEndian.PutUint32(p.cnt[off:], uint32(nv))
+		} else {
+			p.widenToFit(nv)
+			p.slotSet(pos, nv)
+		}
+	default:
+		binary.LittleEndian.PutUint64(p.cnt[off:], uint64(int64(binary.LittleEndian.Uint64(p.cnt[off:]))+delta))
+	}
+}
+
 // sparseAdd adds delta (>= 0) to the count at flat index ci, inserting a new
-// populated bucket if needed.
-func (p *PackedHistogram) sparseAdd(ci int32, delta int64) {
+// populated bucket if needed. It returns the final position of ci in idx[].
+func (p *PackedHistogram) sparseAdd(ci int32, delta int64) int32 {
 	pos := p.lowerBound(ci)
 	if pos < p.size && p.idx[pos] == ci {
 		// Hit fast path: increment in place at the current width, only falling
 		// back to widen+set when the value crosses the width boundary.
-		off := int(pos) * int(p.width)
-		switch p.width {
-		case 1:
-			if nv := int64(p.cnt[off]) + delta; nv <= 0xFF {
-				p.cnt[off] = byte(nv)
-			} else {
-				p.widenToFit(nv)
-				p.slotSet(pos, nv)
-			}
-		case 2:
-			if nv := int64(binary.LittleEndian.Uint16(p.cnt[off:])) + delta; nv <= 0xFFFF {
-				binary.LittleEndian.PutUint16(p.cnt[off:], uint16(nv))
-			} else {
-				p.widenToFit(nv)
-				p.slotSet(pos, nv)
-			}
-		case 4:
-			if nv := int64(binary.LittleEndian.Uint32(p.cnt[off:])) + delta; nv <= 0xFFFFFFFF {
-				binary.LittleEndian.PutUint32(p.cnt[off:], uint32(nv))
-			} else {
-				p.widenToFit(nv)
-				p.slotSet(pos, nv)
-			}
-		default:
-			binary.LittleEndian.PutUint64(p.cnt[off:], uint64(int64(binary.LittleEndian.Uint64(p.cnt[off:]))+delta))
-		}
-		return
+		p.addAtExisting(pos, delta)
+		return pos
 	}
 	// insert new bucket at pos
 	p.widenToFit(delta)
@@ -207,6 +224,7 @@ func (p *PackedHistogram) sparseAdd(ci int32, delta int64) {
 	}
 	p.size++
 	p.slotSet(pos, delta)
+	return pos
 }
 
 // ---- record ----
@@ -234,7 +252,18 @@ func (p *PackedHistogram) RecordValues(v, n int64) error {
 		return fmt.Errorf("recording %d would overflow the total count", n)
 	}
 	if n != 0 {
-		p.sparseAdd(ci, n)
+		// Last-hit cache: a bursty/hot stream records the same flat index
+		// repeatedly. If ci matches the cached hit and idx[lastPos] still holds it
+		// (the recheck keeps this correct across earlier insert shifts, and width
+		// widening leaves idx positions fixed), increment in place and skip the
+		// binary search. Effect is identical to the sparseAdd search path.
+		if p.lastIndex == ci && p.lastPos < p.size && p.idx[p.lastPos] == ci {
+			p.addAtExisting(p.lastPos, n)
+		} else {
+			pos := p.sparseAdd(ci, n)
+			p.lastIndex = ci
+			p.lastPos = pos
+		}
 	}
 	p.totalCount += n
 	return nil

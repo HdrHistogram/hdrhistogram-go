@@ -368,6 +368,12 @@ func FuzzPackedDifferential(f *testing.F) {
 	limit = append(limit, op(2, 3000<<3, 1<<43|1)...)
 	limit = append(limit, op(8, 0, 1)...)
 	f.Add(uint8(0), limit)
+	var stale []byte // record, merge buckets below it into both, record it again (write cache)
+	stale = append(stale, op(1, 5000<<3, 10)...)
+	stale = append(stale, op(1, 5000<<3, 10)...)
+	stale = append(stale, op(7, 0, 2|1<<8|7<<16|200<<24)...)
+	stale = append(stale, op(1, 5000<<3, 10)...)
+	f.Add(uint8(0), stale)
 
 	f.Fuzz(func(t *testing.T, geom uint8, ops []byte) {
 		g := packedDiffGeoms[int(geom)%len(packedDiffGeoms)]
@@ -375,8 +381,10 @@ func FuzzPackedDifferential(f *testing.F) {
 		p := NewPacked(g.low, g.high, int(g.sig))
 		// Highest value the counts array can hold, which can be well above high.
 		topEnd := p.highestEquivalent(p.geom.valueFromFlatIndex(p.geom.countsLen - 1))
+		var lastV int64 // last value recorded into p, which its write cache may hold
 		record := func(v, n int64) {
 			// Both reject a count that would overflow the total (#113).
+			lastV = v
 			derr := d.RecordValues(v, n)
 			perr := p.RecordValues(v, n)
 			if (derr == nil) != (perr == nil) {
@@ -478,6 +486,19 @@ func FuzzPackedDifferential(f *testing.F) {
 					record(v+i*stride, 1)
 				}
 			case 7: // reset both, as a rolling-window slot would be reused
+				if arg>>1&1 == 1 {
+					// Or merge buckets at and below the last value into both, which can
+					// shift the packed write cache's position, then record that value again.
+					src := New(g.low, g.high, int(g.sig))
+					for k := uint64(0); k < 3; k++ {
+						_ = src.RecordValue(lastV - int64(arg>>(8+8*k)&0xFF))
+					}
+					if dd, pd := d.Merge(src), p.MergeFrom(src); dd != pd {
+						t.Fatalf("Merge dropped %d, MergeFrom dropped %d", dd, pd)
+					}
+					record(lastV, 1)
+					break
+				}
 				d.Reset()
 				p.Reset()
 				if arg&1 == 1 {
