@@ -591,31 +591,66 @@ func (h *Histogram) ValueAtPercentiles(percentiles []float64) (values map[float6
 		return
 	}
 
-	// Single tight prefix-sum scan over the flat counts[] array resolves all
-	// (ascending) percentiles at once, instead of the per-bucket iterator walk.
-	// The flat index -> value conversion runs only at crossings.
-	// Range over the slice so the per-element bounds check on counts[idx] is elided.
-	total := int64(0)
-	pos := 0
-	for idx, c := range h.counts {
-		total += c
-		for pos < totalQuantilesToCalculate && total >= countAtPercentiles[pos] {
-			currentPercentile := percentiles[pos]
-			value := h.valueFromFlatIndex(int32(idx))
-			// A percentile <= 0 clamps to the 0th percentile (lowest equivalent);
-			// anything above uses the highest equivalent value.
-			if currentPercentile <= 0.0 {
-				values[currentPercentile] = h.lowestEquivalentValue(value)
-			} else {
-				values[currentPercentile] = h.highestEquivalentValue(value)
-			}
-			pos++
-		}
-		if pos >= totalQuantilesToCalculate {
-			break
+	resolved := h.scanTargets(countAtPercentiles)
+	for pos := 0; pos < resolved; pos++ {
+		currentPercentile := percentiles[pos]
+		value := h.valueFromFlatIndex(int32(countAtPercentiles[pos]))
+		// A percentile <= 0 clamps to the 0th percentile (lowest equivalent);
+		// anything above uses the highest equivalent value.
+		if currentPercentile <= 0.0 {
+			values[currentPercentile] = h.lowestEquivalentValue(value)
+		} else {
+			values[currentPercentile] = h.highestEquivalentValue(value)
 		}
 	}
 	return
+}
+
+// scanTargets resolves ascending targets (each >= 1) in one pass over counts[]: it overwrites
+// targets[k] with the flat index at which the cumulative count first reaches the original
+// targets[k], and returns how many it resolved. Counts are non-negative, so a block whose sum
+// cannot reach the next target is skipped; only crossing blocks are walked element by element.
+func (h *Histogram) scanTargets(targets []int64) int {
+	if len(targets) == 0 {
+		return 0
+	}
+	counts := h.counts
+	n := len(counts)
+	pos := 0
+	next := targets[0]
+	var total int64
+	i := 0
+	for ; i+scanBlock <= n; i += scanBlock {
+		blk := counts[i : i+scanBlock : i+scanBlock]
+		s := blk[0] + blk[1] + blk[2] + blk[3] + blk[4] + blk[5] + blk[6] + blk[7]
+		if total+s < next {
+			total += s
+			continue
+		}
+		for j := 0; j < scanBlock; j++ {
+			total += blk[j]
+			for total >= next {
+				targets[pos] = int64(i + j)
+				pos++
+				if pos == len(targets) {
+					return pos
+				}
+				next = targets[pos]
+			}
+		}
+	}
+	for ; i < n; i++ {
+		total += counts[i]
+		for total >= next {
+			targets[pos] = int64(i)
+			pos++
+			if pos == len(targets) {
+				return pos
+			}
+			next = targets[pos]
+		}
+	}
+	return pos
 }
 
 // ValueAtPercentilesSlice returns, for each requested percentile, the largest value that
