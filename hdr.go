@@ -4,10 +4,12 @@
 package hdrhistogram
 
 import (
+	"cmp"
 	"fmt"
 	"io"
 	"math"
 	"math/bits"
+	"slices"
 	"sort"
 )
 
@@ -700,15 +702,15 @@ func (h *Histogram) ValueAtPercentilesSlice(percentiles []float64) []int64 {
 	for i := range order {
 		order[i] = i
 	}
-	sort.SliceStable(order, func(a, b int) bool { return targets[order[a]] < targets[order[b]] })
-	sorted := make([]int64, n)
-	for k, oi := range order {
-		sorted[k] = targets[oi]
-	}
-	resolved := h.scanTargets(sorted)
+	// slices.SortStableFunc keeps order off the heap (sort.SliceStable's interface makes it
+	// escape). Equal ranks are interchangeable, so sorting targets in place afterwards gives
+	// targets[k] == original targets[order[k]] without a second slice.
+	slices.SortStableFunc(order, func(a, b int) int { return cmp.Compare(targets[a], targets[b]) })
+	slices.Sort(targets)
+	resolved := h.scanTargets(targets)
 	for k := 0; k < resolved; k++ {
 		oi := order[k]
-		value := h.valueFromFlatIndex(int32(sorted[k]))
+		value := h.valueFromFlatIndex(int32(targets[k]))
 		if percentiles[oi] <= 0.0 {
 			result[oi] = h.lowestEquivalentValue(value)
 		} else {

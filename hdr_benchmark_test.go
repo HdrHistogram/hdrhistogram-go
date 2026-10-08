@@ -85,6 +85,7 @@ func BenchmarkHistogramValueAtPercentilesGivenPercentileSlice(b *testing.B) {
 	}
 }
 
+// nolint
 func benchmarkValueAtPercentilesSlice(b *testing.B, percentiles []float64) {
 	rand.Seed(12345)
 	h, _ := populateHistogramLogNormalDist(b, 1, 1000000, 3, 1000000)
