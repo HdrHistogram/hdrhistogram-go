@@ -702,9 +702,9 @@ func (h *Histogram) ValueAtPercentilesSlice(percentiles []float64) []int64 {
 	for i := range order {
 		order[i] = i
 	}
-	// slices.SortStableFunc keeps order off the heap (sort.SliceStable's interface makes it
-	// escape). Equal ranks are interchangeable, so sorting targets in place afterwards gives
-	// targets[k] == original targets[order[k]] without a second slice.
+	// slices.SortStableFunc avoids sort.SliceStable's reflection swapper and closure
+	// allocations. Sorting targets in place afterwards gives targets[k] == original
+	// targets[order[k]] (the same multiset sorted by the same key) without a second slice.
 	slices.SortStableFunc(order, func(a, b int) int { return cmp.Compare(targets[a], targets[b]) })
 	slices.Sort(targets)
 	resolved := h.scanTargets(targets)

@@ -98,5 +98,10 @@ func TestValueAtPercentilesWrappedImportStaysInBounds(t *testing.T) {
 				t.Fatalf("round %d: ValueAtPercentiles[%v] = %d, outside [0, %d]", round, p, v, top)
 			}
 		}
+		for i, v := range h.ValueAtPercentilesSlice(ps) {
+			if v < 0 || v > top {
+				t.Fatalf("round %d: ValueAtPercentilesSlice[%d] (p=%v) = %d, outside [0, %d]", round, i, ps[i], v, top)
+			}
+		}
 	}
 }
