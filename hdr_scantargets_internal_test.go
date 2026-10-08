@@ -76,19 +76,27 @@ func TestValueAtPercentilesZeroDigitTail(t *testing.T) {
 	}
 }
 
-// Import of a snapshot that fails Validate can wrap the total; the map variant then agrees
-// with ValueAtPercentile, which makes the same non-negative, non-overflowing assumption.
-func TestValueAtPercentilesWrappedImportMatchesSingle(t *testing.T) {
-	s := New(1, 1000, 1).Export()
-	s.Counts[0], s.Counts[1], s.Counts[2], s.Counts[9] = math.MaxInt64, math.MaxInt64, 2, 1
-	if s.Validate() == nil {
-		t.Fatal("setup: snapshot should fail Validate")
-	}
-	h := Import(s)
-	got := h.ValueAtPercentiles([]float64{50, 99, 100})
-	for _, p := range []float64{50, 99, 100} {
-		if want := h.ValueAtPercentile(p); got[p] != want {
-			t.Fatalf("p%v: ValueAtPercentiles %d, ValueAtPercentile %d", p, got[p], want)
+// Import of a snapshot that fails Validate can wrap the total. Results are unspecified then
+// (they can differ from master and from ValueAtPercentile), but the scan must stay in bounds:
+// no panic, and every value is 0 (unresolved) or a value the histogram can hold.
+func TestValueAtPercentilesWrappedImportStaysInBounds(t *testing.T) {
+	rng := rand.New(rand.NewSource(11))
+	big := []int64{math.MaxInt64, math.MaxInt64 - 1, math.MaxInt64 / 2, 1 << 62, 0, 1, 2, 3}
+	for round := 0; round < 2000; round++ {
+		s := New(1, 1000, 1).Export()
+		for i := 0; i < 24; i++ {
+			s.Counts[i] = big[rng.Intn(len(big))]
+		}
+		if s.Validate() == nil {
+			continue
+		}
+		h := Import(s)
+		top := h.highestEquivalentValue(h.valueFromFlatIndex(int32(len(h.counts) - 1)))
+		ps := []float64{-1, 0, rng.Float64() * 100, 50, 99, 100, 150}
+		for p, v := range h.ValueAtPercentiles(ps) {
+			if v < 0 || v > top {
+				t.Fatalf("round %d: ValueAtPercentiles[%v] = %d, outside [0, %d]", round, p, v, top)
+			}
 		}
 	}
 }

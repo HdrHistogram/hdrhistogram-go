@@ -606,7 +606,7 @@ func (h *Histogram) ValueAtPercentiles(percentiles []float64) (values map[float6
 	return
 }
 
-// scanTargets resolves ascending targets (each >= 1) in one pass over counts[]: it overwrites
+// scanTargets resolves non-decreasing targets in one pass over counts[]: it overwrites
 // targets[k] with the flat index at which the cumulative count first reaches the original
 // targets[k], and returns how many it resolved. Counts are non-negative, so a block whose sum
 // cannot reach the next target is skipped; only crossing blocks are walked element by element.
