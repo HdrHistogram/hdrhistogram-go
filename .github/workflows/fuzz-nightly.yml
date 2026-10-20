@@ -21,6 +21,7 @@ on:
     paths:
       - '.github/workflows/fuzz-nightly.yml'
       - '.github/scripts/fuzz-targets.sh'
+      - '.github/scripts/fuzz-engine-death.sh'
       - '.github/scripts/fuzz-corpus-minimize.sh'
 
 permissions:
@@ -110,6 +111,11 @@ jobs:
         if [ "$rc" = 124 ] || [ "$rc" = 137 ]; then
           echo "hardstop=true" >> "$GITHUB_OUTPUT"
           echo "::error::${{ matrix.target }} did not finish within ${FUZZ_MINUTES}m + 10m (hang?); stopped so the corpus can still be saved"
+        elif [ "$rc" != 0 ] && .github/scripts/fuzz-engine-death.sh '${{ matrix.target }}' fuzz.log; then
+          # The engine process died and the input it saved passes: not an input-dependent failure. Warn, keep the artifact, don't alert.
+          echo "enginedeath=true" >> "$GITHUB_OUTPUT"
+          echo "::warning::${{ matrix.target }}: the fuzzing engine died ('fuzzing process hung or terminated unexpectedly') and the saved input replays cleanly; not reported as a failure"
+          rc=0
         fi
         exit "$rc"
 
@@ -120,6 +126,7 @@ jobs:
         {
           echo "### ${{ matrix.target }}"
           echo "- fuzz time: ${FUZZ_MINUTES}m, outcome: ${{ steps.fuzz.outcome }}"
+          if [ "${{ steps.fuzz.outputs.enginedeath }}" = true ]; then echo "- **the fuzzing engine died; the saved input replays cleanly** (artifact kept), not counted as a failure"; fi
           if [ -f minimize.log ]; then echo "- minimised: $(tail -1 minimize.log)"; fi
           echo "- corpus entries: ${{ steps.fuzz.outputs.before }} → $after"
           echo '```'
@@ -150,6 +157,16 @@ jobs:
       uses: actions/upload-artifact@v4
       with:
         name: fuzz-failure-${{ matrix.target }}
+        path: |
+          testdata/fuzz/${{ matrix.target }}/
+          fuzz.log
+        if-no-files-found: warn
+
+    - name: Keep the input of an engine death
+      if: always() && steps.fuzz.outputs.enginedeath == 'true'
+      uses: actions/upload-artifact@v4
+      with:
+        name: fuzz-engine-death-${{ matrix.target }}
         path: |
           testdata/fuzz/${{ matrix.target }}/
           fuzz.log
